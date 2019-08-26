@@ -1,0 +1,7 @@
+#goal definition
+bool stop
+---
+#result definition
+sensor_msgs/PointCloud2 pointcloud
+---
+#feedback
