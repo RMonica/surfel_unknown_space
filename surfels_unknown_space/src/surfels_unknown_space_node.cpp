@@ -129,7 +129,7 @@ void SurfelsUnknownSpace::onSetSurfelCloudAction(const surfels_unknown_space_msg
   m_requests_pending--;
   m_cond_var.notify_all();
 
-  ROS_INFO("surfels_unknown_space: surfel cloud set (size %u)", (unsigned)surfels_size);
+  ROS_INFO("surfels_unknown_space: set surfel cloud (size %u)", (unsigned)surfels_size);
 }
 
 void SurfelsUnknownSpace::onGetSurfelCloudAction(const surfels_unknown_space_msgs::GetSurfelCloudGoalConstPtr &goal)
@@ -195,7 +195,7 @@ void SurfelsUnknownSpace::onGetSurfelCloudAction(const surfels_unknown_space_msg
   m_requests_pending--;
   m_cond_var.notify_all();
 
-  ROS_INFO("surfels_unknown_space: surfel cloud get (size %u)", (unsigned)surfels_size);
+  ROS_INFO("surfels_unknown_space: surfel cloud sent (size %u)", (unsigned)surfels_size);
 }
 
 void SurfelsUnknownSpace::onGetTimersAction(const surfels_unknown_space_msgs::GetTimersGoalConstPtr &)

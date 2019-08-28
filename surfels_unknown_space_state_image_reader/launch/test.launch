@@ -1,0 +1,29 @@
+<launch>
+
+  <node pkg="surfels_unknown_space" type="surfels_unknown_space" name="surfels_unknown_space" output="screen" clear_params="true" >
+
+    <!--
+    <param name="opencl_platform_name" type="string" value="Intel" />
+    <param name="opencl_subdevice_size" type="int" value="1" />
+    -->
+    <param name="opencl_platform_name" type="string" value="NVIDIA" />
+    <param name="opencl_subdevice_size" type="int" value="0" />
+
+    <param name="ack_topic" type="string" value="/rosbag_reader_ack" />
+
+    <param name="frontel_normal_as_color" type="bool" value="true" />
+
+    <param name="max_range" type="double" value="5.0" />
+  </node>
+
+  <node pkg="surfels_unknown_space_state_image_reader" type="state_image_reader" name="rosbag_reader" output="screen" clear_params="true" >
+    <param name="frame_state_topic" type="string" value="/elastic_frame_state_stable" />
+    <param name="input_file_prefix" type="string" value="$(find surfels_unknown_space_state_image_reader)/data/" />
+
+    <param name="ack_topic" type="string" value="/rosbag_reader_ack" />
+
+    <param name="save_cloud_name" type="string" value="surfels" />
+  </node>
+
+</launch>
+

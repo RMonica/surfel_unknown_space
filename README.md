@@ -27,7 +27,7 @@ The package `rmonica_multi_timer` was used for profiling, but it is currently un
 Usage
 -----
 
-The implementation of the method is contained in the `surfel_unknown_space` node, in the `surfel_unknown_space` package.
+The implementation of the method is contained in the `surfels_unknown_space` node, in the `surfels_unknown_space` package.
 The node starts with an empty surfel cloud, representing completely unknown space, and it waits for sensor observations.
 
 Sensor observations should be provided to the topic `/elastic_frame_state_stable` using the message type `surfels_unknown_space_msgs/FrameState`.
@@ -46,7 +46,12 @@ When the node receives a message from topic `/elastic_frame_state_stable`, it up
 
 The current surfel cloud may be obtained at any time by calling action `/elastic_ui_download`, of type `surfels_unknown_space_msgs/GetSurfelCloud`. The surfel cloud is also published at each iteration to topic `surfels_cloud` as `sensor_msgs/PointCloud2`. The current surfel cloud can also be loaded from an external source by calling action `/elastic_ui_upload` of type `surfels_unknown_space_msgs/SetSurfelCloud`.
 
-The surfel cloud uses the standard PCL `PointSurfel` point type (compatible with [surfel_cloud_rviz_plugin](https://github.com/RMonica/surfel_cloud_rviz_plugin)). Frontels can be distinguished from occupied surfels as they have `confidence` field set to 0. 
+The surfel cloud uses the standard PCL `PointSurfel` point type (compatible with [surfel_cloud_rviz_plugin](https://github.com/RMonica/surfel_cloud_rviz_plugin)). Frontels can be distinguished from occupied surfels as they have `confidence` field set to 0.
+
+Test
+----
+
+The package `surfels_unknown_space_state_image_reader` is provided as an example to test the `surfels_unknown_space` node. Further information is provided in the README of that package.
 
 Parameters
 ----------
