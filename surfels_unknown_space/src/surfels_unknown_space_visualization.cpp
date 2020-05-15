@@ -28,7 +28,7 @@
  * OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "surfels_unknown_space.h"
+#include "surfels_unknown_space_node_h.h"
 
 // ROS
 #include <visualization_msgs/MarkerArray.h>
@@ -75,10 +75,10 @@ static void CylinderFromLine(const Eigen::Vector3f & start, const Eigen::Vector3
   cyl.id = i;
 }
 
-void SurfelsUnknownSpace::ShowCamera(const Eigen::Affine3f &pose,
-                                    const float padding_x,
-                                    const float padding_y,
-                                    const float size_z)
+void SurfelsUnknownSpaceNode::ShowCamera(const Eigen::Affine3f &pose,
+                                         const float padding_x,
+                                         const float padding_y,
+                                         const float size_z)
 {
   if (!m_camera_display_pub.getNumSubscribers())
     return;
@@ -86,8 +86,12 @@ void SurfelsUnknownSpace::ShowCamera(const Eigen::Affine3f &pose,
   visualization_msgs::MarkerArray funnel_msg;
   auto & markers = funnel_msg.markers;
 
-  const int64 width = m_intrinsics->width;
-  const int64 height = m_intrinsics->height;
+  SurfelsUnknownSpace::IntrinsicsConstPtr intrinsics = m_surfels_unknown_space->GetIntrinsics();
+  if (!intrinsics)
+    return;
+
+  const int64 width = intrinsics->width;
+  const int64 height = intrinsics->height;
 
   visualization_msgs::Marker delete_marker;
   delete_marker.header.stamp = ros::Time::now();
@@ -116,8 +120,8 @@ void SurfelsUnknownSpace::ShowCamera(const Eigen::Affine3f &pose,
   {
     const int x = padding_x + vec[i].x() * (width - 2 * padding_x);
     const int y = padding_y + vec[i].y() * (height - 2 * padding_y);
-    const Eigen::Vector3f bearing((x - m_intrinsics->center_x) / m_intrinsics->focal_x,
-                                  (y - m_intrinsics->center_y) / m_intrinsics->focal_y,
+    const Eigen::Vector3f bearing((x - intrinsics->center_x) / intrinsics->focal_x,
+                                  (y - intrinsics->center_y) / intrinsics->focal_y,
                                   1.0f);
     const Eigen::Vector3f start = bearing * 0.0f;
     const Eigen::Vector3f end = bearing * size_z;
@@ -138,7 +142,7 @@ void SurfelsUnknownSpace::ShowCamera(const Eigen::Affine3f &pose,
   m_camera_display_pub.publish(funnel_msg);
 }
 
-void SurfelsUnknownSpace::ShowNUVG(const Eigen::Affine3f & pose,
+void SurfelsUnknownSpaceNode::ShowNUVG(const Eigen::Affine3f & pose,
                                     const uint64 count_at_max_range,
                                     const uint64 count_at_min_range,
                                     const uint64 count_at_zero)
@@ -149,12 +153,16 @@ void SurfelsUnknownSpace::ShowNUVG(const Eigen::Affine3f & pose,
   visualization_msgs::MarkerArray nuvg_msg;
   auto & markers = nuvg_msg.markers;
 
-  const int64 width = m_intrinsics->width;
-  const int64 height = m_intrinsics->height;
+  SurfelsUnknownSpace::IntrinsicsConstPtr intrinsics = m_surfels_unknown_space->GetIntrinsics();
+  if (!intrinsics)
+    return;
+
+  const int64 width = intrinsics->width;
+  const int64 height = intrinsics->height;
 
   const int64 SAMPLING = 20;
 
-  const float diameter_at_zero = getVoxelSideAtDistance(0);
+  const float diameter_at_zero = m_surfels_unknown_space->getVoxelSideAtDistance(0);
 
   visualization_msgs::Marker delete_marker;
   delete_marker.header.stamp = ros::Time::now();
@@ -209,11 +217,11 @@ void SurfelsUnknownSpace::ShowNUVG(const Eigen::Affine3f & pose,
   for (int64 i = 0; i <= width; i += SAMPLING)
     for (int64 h = 0; h <= height; h += SAMPLING)
     {
-      const Eigen::Vector3f bearing((i - m_intrinsics->center_x) / m_intrinsics->focal_x,
-                                    (h - m_intrinsics->center_y) / m_intrinsics->focal_y,
+      const Eigen::Vector3f bearing((i - intrinsics->center_x) / intrinsics->focal_x,
+                                    (h - intrinsics->center_y) / intrinsics->focal_y,
                                     1.0f);
-      const Eigen::Vector3f start = bearing * m_intrinsics->min_range;
-      const Eigen::Vector3f end = bearing * m_intrinsics->max_range;
+      const Eigen::Vector3f start = bearing * intrinsics->min_range;
+      const Eigen::Vector3f end = bearing * intrinsics->max_range;
       const Eigen::Vector3f world_start = pose * start;
       const Eigen::Vector3f world_end = pose * end;
 
@@ -224,11 +232,11 @@ void SurfelsUnknownSpace::ShowNUVG(const Eigen::Affine3f & pose,
   for (int64 i = SAMPLING / 2; i < width; i += SAMPLING)
     for (int64 h = SAMPLING / 2; h < height; h += SAMPLING)
     {
-      const Eigen::Vector3f bearing((i - m_intrinsics->center_x) / m_intrinsics->focal_x,
-                                    (h - m_intrinsics->center_y) / m_intrinsics->focal_y,
+      const Eigen::Vector3f bearing((i - intrinsics->center_x) / intrinsics->focal_x,
+                                    (h - intrinsics->center_y) / intrinsics->focal_y,
                                     1.0f);
-      const Eigen::Vector3f start = bearing * m_intrinsics->min_range;
-      const Eigen::Vector3f end = bearing * m_intrinsics->max_range;
+      const Eigen::Vector3f start = bearing * intrinsics->min_range;
+      const Eigen::Vector3f end = bearing * intrinsics->max_range;
       const Eigen::Vector3f world_start = pose * start;
       const Eigen::Vector3f world_end = pose * end;
 
@@ -239,11 +247,11 @@ void SurfelsUnknownSpace::ShowNUVG(const Eigen::Affine3f & pose,
   for (int64 i = 0; i <= width; i += SAMPLING)
     for (int64 h = 0; h <= height; h += SAMPLING)
     {
-      const Eigen::Vector3f xy((i - m_intrinsics->center_x) * diameter_at_zero,
-                               (h - m_intrinsics->center_y) * diameter_at_zero,
+      const Eigen::Vector3f xy((i - intrinsics->center_x) * diameter_at_zero,
+                               (h - intrinsics->center_y) * diameter_at_zero,
                                0.0f);
       const Eigen::Vector3f z0(0.0f, 0.0f, 0.0f);
-      const Eigen::Vector3f z1(0.0f, 0.0f, m_intrinsics->min_range);
+      const Eigen::Vector3f z1(0.0f, 0.0f, intrinsics->min_range);
       const Eigen::Vector3f start = xy + z0;
       const Eigen::Vector3f end = xy + z1;
       const Eigen::Vector3f world_start = pose * start;
@@ -256,11 +264,11 @@ void SurfelsUnknownSpace::ShowNUVG(const Eigen::Affine3f & pose,
   for (int64 i = SAMPLING / 2; i < width; i += SAMPLING)
     for (int64 h = SAMPLING / 2; h < height; h += SAMPLING)
     {
-      const Eigen::Vector3f xy((i - m_intrinsics->center_x) * diameter_at_zero,
-                               (h - m_intrinsics->center_y) * diameter_at_zero,
+      const Eigen::Vector3f xy((i - intrinsics->center_x) * diameter_at_zero,
+                               (h - intrinsics->center_y) * diameter_at_zero,
                                0.0f);
       const Eigen::Vector3f z0(0.0f, 0.0f, 0.0f);
-      const Eigen::Vector3f z1(0.0f, 0.0f, m_intrinsics->min_range);
+      const Eigen::Vector3f z1(0.0f, 0.0f, intrinsics->min_range);
       const Eigen::Vector3f start = xy + z0;
       const Eigen::Vector3f end = xy + z1;
       const Eigen::Vector3f world_start = pose * start;
@@ -274,18 +282,18 @@ void SurfelsUnknownSpace::ShowNUVG(const Eigen::Affine3f & pose,
     for (int64 x = 0; x <= width; x += SAMPLING)
     {
       Eigen::Vector3f xz = (z > int64(count_at_min_range))
-        ? Eigen::Vector3f((x - m_intrinsics->center_x) / m_intrinsics->focal_x * getDistanceFromVoxelCount(z),
+        ? Eigen::Vector3f((x - intrinsics->center_x) / intrinsics->focal_x * m_surfels_unknown_space->getDistanceFromVoxelCount(z),
                           0.0f,
-                          getDistanceFromVoxelCount(z))
-        : Eigen::Vector3f((x - m_intrinsics->center_x) * diameter_at_zero,
+                          m_surfels_unknown_space->getDistanceFromVoxelCount(z))
+        : Eigen::Vector3f((x - intrinsics->center_x) * diameter_at_zero,
                           0.0f,
-                          getDistanceFromVoxelCount(z));
+                          m_surfels_unknown_space->getDistanceFromVoxelCount(z));
       Eigen::Vector3f y0 = (z > int64(count_at_min_range))
-          ? Eigen::Vector3f(0.0f, (- m_intrinsics->center_y) / m_intrinsics->focal_y * getDistanceFromVoxelCount(z), 0.0f)
-          : Eigen::Vector3f(0.0f, (- m_intrinsics->center_y) * diameter_at_zero, 0.0f);
+          ? Eigen::Vector3f(0.0f, (- intrinsics->center_y) / intrinsics->focal_y * m_surfels_unknown_space->getDistanceFromVoxelCount(z), 0.0f)
+          : Eigen::Vector3f(0.0f, (- intrinsics->center_y) * diameter_at_zero, 0.0f);
       Eigen::Vector3f y1 = (z > int64(count_at_min_range))
-          ? Eigen::Vector3f(0.0f,(- m_intrinsics->center_y + height) / m_intrinsics->focal_y * getDistanceFromVoxelCount(z), 0.0f)
-          : Eigen::Vector3f(0.0f,(- m_intrinsics->center_y + height) * diameter_at_zero, 0.0f);
+          ? Eigen::Vector3f(0.0f,(- intrinsics->center_y + height) / intrinsics->focal_y * m_surfels_unknown_space->getDistanceFromVoxelCount(z), 0.0f)
+          : Eigen::Vector3f(0.0f,(- intrinsics->center_y + height) * diameter_at_zero, 0.0f);
 
       const Eigen::Vector3f start = xz + y0;
       const Eigen::Vector3f end = xz + y1;
@@ -300,18 +308,18 @@ void SurfelsUnknownSpace::ShowNUVG(const Eigen::Affine3f & pose,
     for (int64 x = SAMPLING / 2; x < width; x += SAMPLING)
     {
       Eigen::Vector3f xz = (z > int64(count_at_min_range))
-        ? Eigen::Vector3f((x - m_intrinsics->center_x) / m_intrinsics->focal_x * getDistanceFromVoxelCount(z),
+        ? Eigen::Vector3f((x - intrinsics->center_x) / intrinsics->focal_x * m_surfels_unknown_space->getDistanceFromVoxelCount(z),
                           0.0f,
-                          getDistanceFromVoxelCount(z))
-        : Eigen::Vector3f((x - m_intrinsics->center_x) * diameter_at_zero,
+                          m_surfels_unknown_space->getDistanceFromVoxelCount(z))
+        : Eigen::Vector3f((x - intrinsics->center_x) * diameter_at_zero,
                           0.0f,
-                          getDistanceFromVoxelCount(z));
+                          m_surfels_unknown_space->getDistanceFromVoxelCount(z));
       Eigen::Vector3f y0 = (z > int64(count_at_min_range))
-          ? Eigen::Vector3f(0.0f, (- m_intrinsics->center_y) / m_intrinsics->focal_y * getDistanceFromVoxelCount(z), 0.0f)
-          : Eigen::Vector3f(0.0f, (- m_intrinsics->center_y) * diameter_at_zero, 0.0f);
+          ? Eigen::Vector3f(0.0f, (- intrinsics->center_y) / intrinsics->focal_y * m_surfels_unknown_space->getDistanceFromVoxelCount(z), 0.0f)
+          : Eigen::Vector3f(0.0f, (- intrinsics->center_y) * diameter_at_zero, 0.0f);
       Eigen::Vector3f y1 = (z > int64(count_at_min_range))
-          ? Eigen::Vector3f(0.0f,(- m_intrinsics->center_y + height) / m_intrinsics->focal_y * getDistanceFromVoxelCount(z), 0.0f)
-          : Eigen::Vector3f(0.0f,(- m_intrinsics->center_y + height) * diameter_at_zero, 0.0f);
+          ? Eigen::Vector3f(0.0f,(- intrinsics->center_y + height) / intrinsics->focal_y * m_surfels_unknown_space->getDistanceFromVoxelCount(z), 0.0f)
+          : Eigen::Vector3f(0.0f,(- intrinsics->center_y + height) * diameter_at_zero, 0.0f);
 
       const Eigen::Vector3f start = xz + y0;
       const Eigen::Vector3f end = xz + y1;
@@ -327,17 +335,17 @@ void SurfelsUnknownSpace::ShowNUVG(const Eigen::Affine3f & pose,
     {
       Eigen::Vector3f yz = (z > int64(count_at_min_range))
         ? Eigen::Vector3f(0.0f,
-                          (y - m_intrinsics->center_y) / m_intrinsics->focal_y * getDistanceFromVoxelCount(z),
-                          getDistanceFromVoxelCount(z))
+                          (y - intrinsics->center_y) / intrinsics->focal_y * m_surfels_unknown_space->getDistanceFromVoxelCount(z),
+                          m_surfels_unknown_space->getDistanceFromVoxelCount(z))
         : Eigen::Vector3f(0.0f,
-                          (y - m_intrinsics->center_y) * diameter_at_zero,
-                          getDistanceFromVoxelCount(z));
+                          (y - intrinsics->center_y) * diameter_at_zero,
+                          m_surfels_unknown_space->getDistanceFromVoxelCount(z));
       Eigen::Vector3f x0 = (z > int64(count_at_min_range))
-          ? Eigen::Vector3f(( - m_intrinsics->center_x) / m_intrinsics->focal_x * getDistanceFromVoxelCount(z), 0.0f, 0.0f)
-          : Eigen::Vector3f(( - m_intrinsics->center_x) * diameter_at_zero, 0.0f, 0.0f);
+          ? Eigen::Vector3f(( - intrinsics->center_x) / intrinsics->focal_x * m_surfels_unknown_space->getDistanceFromVoxelCount(z), 0.0f, 0.0f)
+          : Eigen::Vector3f(( - intrinsics->center_x) * diameter_at_zero, 0.0f, 0.0f);
       Eigen::Vector3f x1 = (z > int64(count_at_min_range))
-          ? Eigen::Vector3f(( - m_intrinsics->center_x + width) / m_intrinsics->focal_x * getDistanceFromVoxelCount(z), 0.0f, 0.0f)
-          : Eigen::Vector3f(( - m_intrinsics->center_x + width) * diameter_at_zero, 0.0f, 0.0f);
+          ? Eigen::Vector3f(( - intrinsics->center_x + width) / intrinsics->focal_x * m_surfels_unknown_space->getDistanceFromVoxelCount(z), 0.0f, 0.0f)
+          : Eigen::Vector3f(( - intrinsics->center_x + width) * diameter_at_zero, 0.0f, 0.0f);
 
       const Eigen::Vector3f start = yz + x0;
       const Eigen::Vector3f end = yz + x1;
@@ -353,17 +361,17 @@ void SurfelsUnknownSpace::ShowNUVG(const Eigen::Affine3f & pose,
     {
       Eigen::Vector3f yz = (z > int64(count_at_min_range))
         ? Eigen::Vector3f(0.0f,
-                          (y - m_intrinsics->center_y) / m_intrinsics->focal_y * getDistanceFromVoxelCount(z),
-                          getDistanceFromVoxelCount(z))
+                          (y - intrinsics->center_y) / intrinsics->focal_y * m_surfels_unknown_space->getDistanceFromVoxelCount(z),
+                          m_surfels_unknown_space->getDistanceFromVoxelCount(z))
         : Eigen::Vector3f(0.0f,
-                          (y - m_intrinsics->center_y) * diameter_at_zero,
-                          getDistanceFromVoxelCount(z));
+                          (y - intrinsics->center_y) * diameter_at_zero,
+                          m_surfels_unknown_space->getDistanceFromVoxelCount(z));
       Eigen::Vector3f x0 = (z > int64(count_at_min_range))
-          ? Eigen::Vector3f(( - m_intrinsics->center_x) / m_intrinsics->focal_x * getDistanceFromVoxelCount(z), 0.0f, 0.0f)
-          : Eigen::Vector3f(( - m_intrinsics->center_x) * diameter_at_zero, 0.0f, 0.0f);
+          ? Eigen::Vector3f(( - intrinsics->center_x) / intrinsics->focal_x * m_surfels_unknown_space->getDistanceFromVoxelCount(z), 0.0f, 0.0f)
+          : Eigen::Vector3f(( - intrinsics->center_x) * diameter_at_zero, 0.0f, 0.0f);
       Eigen::Vector3f x1 = (z > int64(count_at_min_range))
-          ? Eigen::Vector3f(( - m_intrinsics->center_x + width) / m_intrinsics->focal_x * getDistanceFromVoxelCount(z), 0.0f, 0.0f)
-          : Eigen::Vector3f(( - m_intrinsics->center_x + width) * diameter_at_zero, 0.0f, 0.0f);
+          ? Eigen::Vector3f(( - intrinsics->center_x + width) / intrinsics->focal_x * m_surfels_unknown_space->getDistanceFromVoxelCount(z), 0.0f, 0.0f)
+          : Eigen::Vector3f(( - intrinsics->center_x + width) * diameter_at_zero, 0.0f, 0.0f);
 
       const Eigen::Vector3f start = yz + x0;
       const Eigen::Vector3f end = yz + x1;
@@ -377,24 +385,16 @@ void SurfelsUnknownSpace::ShowNUVG(const Eigen::Affine3f & pose,
   m_nuvg_display_pub.publish(nuvg_msg);
 }
 
-void SurfelsUnknownSpace::ShowKnownStateHull(const uint64 width,
-                                            const uint64 height,
-                                            const uint64 special_color_width,
-                                            const uint64 special_color_height,
-                                            const bool transpose,
-                                            ros::Publisher & pub,
-                                            CLBufferPtr buf
-                                            )
+void SurfelsUnknownSpaceNode::ShowKnownStateHull(const uint64 width,
+                                                 const uint64 height,
+                                                 const uint64 special_color_width,
+                                                 const uint64 special_color_height,
+                                                 ros::Publisher & pub,
+                                                 const Uint32Vector & data
+                                                 )
 {
   if (!pub.getNumSubscribers())
     return;
-  if (!buf)
-    return;
-
-  CLUInt32Vector vec(width * height);
-  m_opencl_command_queue->enqueueReadBuffer(*buf, CL_TRUE,
-                                            0, width * height * sizeof(cl_uint),
-                                            vec.data());
 
   sensor_msgs::Image image;
   image.width = width;
@@ -408,8 +408,8 @@ void SurfelsUnknownSpace::ShowKnownStateHull(const uint64 width,
     for (uint64 x = 0; x < width; x++)
     {
       const uint64 i = y * width + x;
-      const uint64 iin = transpose ? (x * height + y) : i;
-      const bool v = (vec[iin] % 2);
+      const uint64 iin = i;
+      const bool v = (data[iin] % 2);
 
       const bool sc = (x == special_color_width) || (y == special_color_height);
       const Eigen::Vector3i color_on = sc ? Eigen::Vector3i(0,0,255) : Eigen::Vector3i(0,255,0);
@@ -434,7 +434,7 @@ void SurfelsUnknownSpace::ShowKnownStateHull(const uint64 width,
   pub.publish(image);
 }
 
-void SurfelsUnknownSpace::ShowSurfelCloud()
+void SurfelsUnknownSpaceNode::ShowSurfelCloud(const SurfelsUnknownSpace::SurfelVector & surfels)
 {
   if (!m_surfel_cloud_pub.getNumSubscribers())
     return;
@@ -442,13 +442,13 @@ void SurfelsUnknownSpace::ShowSurfelCloud()
   sensor_msgs::PointCloud2 cloud2;
 
   pcl::PointCloud<pcl::PointSurfel> cloud;
-  const uint64 cloud_size = m_surfels.size();
+  const uint64 cloud_size = surfels.size();
   cloud.resize(cloud_size);
 
   uint64 counter = 0;
   for (uint64 i = 0; i < cloud_size; i++)
   {
-    const Surfel & fr = m_surfels[i];
+    const SurfelsUnknownSpace::Surfel & fr = surfels[i];
     if (fr.erased)
       continue;
 
@@ -501,9 +501,9 @@ void SurfelsUnknownSpace::ShowSurfelCloud()
   m_surfel_cloud_pub.publish(cloud2);
 }
 
-void SurfelsUnknownSpace::ShowStableImage(const uint64 width, const uint64 height,
-                                         const FloatVector & depths, const FloatVector & colors,
-                                         const Vector3fVector & bearings, const Eigen::Affine3f & pose)
+void SurfelsUnknownSpaceNode::ShowStableImage(const uint64 width, const uint64 height,
+                                              const FloatVector &depths, const FloatVector &colors,
+                                              const Vector3fVector &bearings, const Eigen::Affine3f &pose)
 {
   if (!m_stable_image_pub.getNumSubscribers())
     return;

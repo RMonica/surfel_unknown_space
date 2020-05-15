@@ -28,109 +28,47 @@
  * OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "surfels_unknown_space.h"
-#include "surfels_unknown_space_node.h"
+#include <surfels_unknown_space/surfels_unknown_space.h>
 
-#include "timer_stub.h"
+#define LOG_INFO(...) m_logger->LogInfo(__VA_ARGS__)
+#define LOG_INFO_STREAM(s) m_logger->LogInfo(OSS() << s)
 
-#include <visualization_msgs/MarkerArray.h>
-
-SurfelsUnknownSpace::SurfelsUnknownSpace(ros::NodeHandle & nh): m_nh(nh)
+SurfelsUnknownSpace::SurfelsUnknownSpace(const Config & config,
+                                         const ILoggerPtr logger,
+                                         const IVisualListenerPtr visual_listener,
+                                         const ITimerListenerPtr timer_listener)
 {
-  // init
-  m_processing = false;
-  m_requests_pending = 0;
+  if (logger)
+    m_logger = logger;
+  else
+    m_logger.reset(new ILogger);
 
-  // parameters
-  double param_double;
-  std::string param_string;
-  int param_int;
+  if (visual_listener)
+    m_visual_listener = visual_listener;
+  else
+    m_visual_listener.reset(new IVisualListener);
 
-  m_nh.param<std::string>(PARAM_NAME_INPUT_TOPIC, param_string, PARAM_DEFAULT_INPUT_TOPIC);
-  m_frame_state_sub = m_nh.subscribe(param_string, 1, &SurfelsUnknownSpace::onFrameState, this);
+  if (timer_listener)
+    m_timer_listener = timer_listener;
+  else
+    m_timer_listener.reset(new ITimerListener);
 
-  m_nh.param<std::string>(PARAM_NAME_SURFEL_UPLOAD_ACTION, param_string, PARAM_DEFAULT_SURFEL_UPLOAD_ACTION);
-  m_set_surfel_cloud_action_server.reset(new SetSurfelCloudActionServer(m_nh, param_string,
-                                         boost::bind(&SurfelsUnknownSpace::onSetSurfelCloudAction, this, _1), false));
-
-  m_nh.param<std::string>(PARAM_NAME_SURFEL_DOWNLOAD_ACTION, param_string, PARAM_DEFAULT_SURFEL_DOWNLOAD_ACTION);
-  m_get_surfel_cloud_action_server.reset(new GetSurfelCloudActionServer(m_nh, param_string,
-                                         boost::bind(&SurfelsUnknownSpace::onGetSurfelCloudAction, this, _1), false));
-
-  m_nh.param<std::string>(PARAM_NAME_GET_TIMERS_ACTION, param_string, PARAM_DEFAULT_GET_TIMERS_ACTION);
-  m_get_timers_action_server.reset(new GetTimersActionServer(m_nh, param_string,
-                                   boost::bind(&SurfelsUnknownSpace::onGetTimersAction, this, _1), false));
-
-  // debug publishers
-  m_stable_image_pub = m_nh.advertise<sensor_msgs::Image>("stable_image",1);
-  m_surfel_cloud_pub = m_nh.advertise<sensor_msgs::PointCloud2>("surfels_cloud",1);
-  m_nuvg_display_pub = m_nh.advertise<visualization_msgs::MarkerArray>("nuvg",1);
-  m_camera_display_pub = m_nh.advertise<visualization_msgs::MarkerArray>("camera",1);
-  m_known_state_hull_xp_pub = m_nh.advertise<sensor_msgs::Image>("hull_xp",1);
-  m_known_state_hull_xn_pub = m_nh.advertise<sensor_msgs::Image>("hull_xn",1);
-  m_known_state_hull_yp_pub = m_nh.advertise<sensor_msgs::Image>("hull_yp",1);
-  m_known_state_hull_yn_pub = m_nh.advertise<sensor_msgs::Image>("hull_yn",1);
-  m_known_state_hull_zp_pub = m_nh.advertise<sensor_msgs::Image>("hull_zp",1);
-  m_known_state_hull_zn_pub = m_nh.advertise<sensor_msgs::Image>("hull_zn",1);
-  m_known_state_hull_xp_f_pub = m_nh.advertise<sensor_msgs::Image>("hull_f_xp",1);
-  m_known_state_hull_xn_f_pub = m_nh.advertise<sensor_msgs::Image>("hull_f_xn",1);
-  m_known_state_hull_yp_f_pub = m_nh.advertise<sensor_msgs::Image>("hull_f_yp",1);
-  m_known_state_hull_yn_f_pub = m_nh.advertise<sensor_msgs::Image>("hull_f_yn",1);
-  m_known_state_hull_zp_f_pub = m_nh.advertise<sensor_msgs::Image>("hull_f_zp",1);
-  m_known_state_hull_zn_f_pub = m_nh.advertise<sensor_msgs::Image>("hull_f_zn",1);
-
-  m_nh.param<std::string>(PARAM_NAME_ACK_TOPIC, param_string, PARAM_DEFAULT_ACK_TOPIC);
-  m_ack_publisher = m_nh.advertise<std_msgs::Empty>(param_string, 1);
-
-  m_nh.param<bool>(PARAM_NAME_FRONTEL_NORMAL_AS_COLOR, m_frontel_normal_as_color, PARAM_DEFAULT_FRONTEL_NORMAL_AS_COLOR);
-
-  m_nh.param<double>(PARAM_NAME_MAX_RANGE, param_double, PARAM_DEFAULT_MAX_RANGE);
-  m_max_range = param_double;
-
-  m_nh.param<double>(PARAM_NAME_MIN_RANGE, param_double, PARAM_DEFAULT_MIN_RANGE);
-  m_min_range = param_double;
-
-  m_nh.param<double>(PARAM_NAME_HULL_UNKNOWN_SURFEL_MULT, param_double, PARAM_DEFAULT_HULL_UNKNOWN_SURFEL_MULT);
-  m_unknown_surfels_radius_mult_pn = param_double;
-
-  m_nh.param<double>(PARAM_NAME_SURFEL_THICKNESS, param_double, PARAM_DEFAULT_SURFEL_THICKNESS);
-  m_surfel_thickness = param_double;
-
-  // multiplier of the surfel radius
-  m_nh.param<double>(PARAM_NAME_SURFEL_RADIUS_CREAT_MULT, param_double, PARAM_DEFAULT_SURFEL_RADIUS_CREAT_MULT);
-  m_surfel_radius_mult = param_double;
-
-  m_nh.param<bool>(PARAM_NAME_ENABLE_KNOWN_SPACE_FILTER, m_enable_known_space_filter, PARAM_DEFAULT_ENABLE_KNOWN_SPACE_FILTER);
-
-  m_nh.param<double>(PARAM_NAME_CONFIDENCE_THRESHOLD, param_double, PARAM_DEFAULT_CONFIDENCE_THRESHOLD);
-  m_dot_field_safety_th = param_double;
-  m_dot_field_valid_th = param_double;
-
-  m_nh.param<int>(PARAM_NAME_BACK_PADDING, param_int, PARAM_DEFAULT_BACK_PADDING);
-  m_back_padding = param_int;
-
-  m_nh.param<int>(PARAM_NAME_SIDE_PADDING, param_int, PARAM_DEFAULT_SIDE_PADDING);
-  m_side_padding = param_int;
-
-  m_nh.param<int>(PARAM_NAME_MAX_SURFELS_IN_MEM, param_int, PARAM_DEFAULT_MAX_SURFELS_IN_MEM);
-  m_opencl_max_surfels_in_mem = param_int;
-
-  m_nh.param<int>(PARAM_NAME_PROJECTION_THREADS, param_int, PARAM_DEFAULT_PROJECTION_THREADS);
-  m_surfels_projection_threads = param_int;
-
-  m_nh.param<int>(PARAM_NAME_DOWNSAMPLE_FACTOR, param_int, PARAM_DEFAULT_DOWNSAMPLE_FACTOR);
-  m_downsample_factor = param_int;
+  m_max_range = config.max_range;
+  m_min_range = config.min_range;
+  m_unknown_surfels_radius_mult_pn = config.unknown_surfels_radius_mult_pn;
+  m_surfel_thickness = config.surfel_thickness;
+  m_surfel_radius_mult = config.surfel_radius_mult;
+  m_enable_known_space_filter = config.enable_known_space_filter;
+  m_dot_field_safety_th = config.dot_field_valid_th;
+  m_dot_field_valid_th = config.dot_field_valid_th;
+  m_back_padding = config.back_padding;
+  m_side_padding = config.side_padding;
+  m_opencl_max_surfels_in_mem = config.opencl_max_surfels_in_mem;
+  m_surfels_projection_threads = config.surfels_projection_threads;
+  m_downsample_factor = config.downsample_factor;
 
   // start threads
-  initOpenCL();
-
-  TIMER_INIT;
-
-  m_thread.reset(new boost::thread(&SurfelsUnknownSpace::ProcessFrameWorker,this));
-
-  m_get_surfel_cloud_action_server->start();
-  m_set_surfel_cloud_action_server->start();
-  m_get_timers_action_server->start();
+  initOpenCL(config);
 }
 
 SurfelsUnknownSpace::~SurfelsUnknownSpace()
@@ -252,7 +190,7 @@ void SurfelsUnknownSpace::SplitNearSurfels(const Eigen::Affine3f & pose)
   for (const Surfel & nsurf : new_surfels)
     CreateSurfel(nsurf);
 
-  std::cout << "Split " << counter << " surfels." << std::endl;
+  LOG_INFO_STREAM("Split " << counter << " surfels.");
 }
 
 template <typename T>
@@ -319,6 +257,18 @@ void SurfelsUnknownSpace::DeleteSurfel(const uint64 index)
   }
 }
 
+SurfelsUnknownSpace::SurfelVector SurfelsUnknownSpace::GetSurfels()
+{
+  SurfelVector result;
+  result.reserve(m_surfels.size());
+
+  for (Surfel s : m_surfels)
+    if (!s.erased)
+      result.push_back(s);
+
+  return result;
+}
+
 void SurfelsUnknownSpace::ComputeApproximateFrustumBoundingBox(const Eigen::Affine3f & pose,
                                                               Eigen::Vector3f & bounding_box_min,
                                                               Eigen::Vector3f & bounding_box_max)
@@ -355,58 +305,36 @@ void SurfelsUnknownSpace::ComputeApproximateFrustumBoundingBox(const Eigen::Affi
   bounding_box_min -= Eigen::Vector3f::Ones() * 0.1f;
 }
 
-void SurfelsUnknownSpace::ProcessFrame(surfels_unknown_space_msgs::FrameStateConstPtr state_ptr)
+void SurfelsUnknownSpace::ProcessFrame(const uint64 input_width, const uint64 input_height,
+                                       const FloatVector & raw_depths, const FloatVector & raw_colors,
+                                       const Eigen::Affine3f & pose, const Intrinsics & input_intrinsics)
 {
-
   pcl::console::TicToc tictoc;
   pcl::console::TicToc total_tictoc;
 
-  const surfels_unknown_space_msgs::FrameState & state = *state_ptr;
+  m_timer_listener->NewFrame();
+  m_timer_listener->StartTimer(ITimerListener::TPhase::SUBSAMPLE);
+  m_timer_listener->StartTimer(ITimerListener::TPhase::TOTAL);
 
-  TIMER_NEWFRAME;
-  TIMER_START(TIMERDEF_SUBSAMPLE);
+  const uint64 width = input_width / m_downsample_factor;
+  const uint64 height = input_height / m_downsample_factor;
+  m_intrinsics = std::make_shared<Intrinsics>(input_intrinsics.RescaleInt(m_downsample_factor));
+  m_intrinsics->min_range = m_min_range;
+  m_intrinsics->max_range = m_max_range;
 
-  const uint64 input_width = state.width;
-  const uint64 input_height = state.height;
-  const uint64 width = state.width / m_downsample_factor;
-  const uint64 height = state.height / m_downsample_factor;
-  const Intrinsics input_intrinsics(state.center_x,state.center_y,state.focal_x,state.focal_y,
-                                    state.width,state.height,m_min_range,m_max_range);
-  m_intrinsics = boost::make_shared<Intrinsics>(input_intrinsics.RescaleInt(m_downsample_factor));
+  FloatVector max_range_raw_depths(raw_depths);
+  for (uint64 y = 0; y < input_height; y++)
+    for (uint64 x = 0; x < input_width; x++)
+    {
+      if (max_range_raw_depths[x + y * input_width] > m_max_range - 0.1f)
+        max_range_raw_depths[x + y * input_width] = 0.0f;
+    }
 
-  FloatVector raw_depths;
-  FloatVector raw_colors;
-  // scope: decode depth and color
-  {
-    raw_depths.resize(input_width * input_height);
-    for (uint64 y = 0; y < input_height; y++)
-      for (uint64 x = 0; x < input_width; x++)
-      {
-        raw_depths[x + y * input_width] = state.input_depth[x + y * input_width] / 1000.0f;
-        if (raw_depths[x + y * input_width] > m_max_range - 0.1f)
-          raw_depths[x + y * input_width] = 0.0f;
-      }
-
-    raw_colors.resize(input_width * input_height * 3);
-    for (uint64 y = 0; y < input_height; y++)
-      for (uint64 x = 0; x < input_width; x++)
-      {
-        for (uint64 i = 0; i < 3; i++)
-          raw_colors[(x + y * input_width) * 3 + i] = state.input_color[(x + y * input_width) * 3 + i] / 255.0f;
-      }
-  }
-  const FloatVector depths = DownSample<float>(input_width,input_height,width,height,1,1.0,raw_depths);
+  const FloatVector depths = DownSample<float>(input_width,input_height,width,height,1,1.0,max_range_raw_depths);
   const FloatVector colors = DownSample<float>(input_width,input_height,width,height,3,1.0,raw_colors);
 
-  TIMER_STOP(TIMERDEF_SUBSAMPLE);
-  TIMER_START(TIMERDEF_INIT);
-
-  Eigen::Affine3f pose = Eigen::Affine3f::Identity();
-  {
-    Eigen::Affine3d posed;
-    tf::poseMsgToEigen(state.pose,posed);
-    pose = posed.cast<float>();
-  }
+  m_timer_listener->StopTimer(ITimerListener::TPhase::SUBSAMPLE);
+  m_timer_listener->StartTimer(ITimerListener::TPhase::INIT);
 
   OpenCLUpdateCurrentPoseAndIntrinsics(pose, m_min_range, m_max_range,
                                        m_dot_field_valid_th, m_dot_field_safety_th, m_back_padding);
@@ -417,106 +345,143 @@ void SurfelsUnknownSpace::ProcessFrame(surfels_unknown_space_msgs::FrameStateCon
   const uint64 count_at_min_range = getVoxelCountAtDistance(m_min_range);
   const int64 count_at_zero = getVoxelCountAtDistance(0.0f);
 
-  TIMER_STOP(TIMERDEF_INIT);
+  m_timer_listener->StopTimer(ITimerListener::TPhase::INIT);
 
-  std::cout << "Computing bearings." << std::endl;
+  LOG_INFO_STREAM("Computing bearings.");
   tictoc.tic();
   Vector3fVector bearings = getAllBearings(width,height);
   tictoc.toc_print();
 
-  TIMER_START(TIMERDEF_BEARINGS);
-  std::cout << "Computing bearings OpenCL." << std::endl;
+  m_timer_listener->StartTimer(ITimerListener::TPhase::BEARINGS);
+  LOG_INFO_STREAM("Computing bearings OpenCL.");
   tictoc.tic();
   OpenCLGetAllBearings(bearings);
   tictoc.toc_print();
-  TIMER_STOP(TIMERDEF_BEARINGS);
+  m_timer_listener->StopTimer(ITimerListener::TPhase::BEARINGS);
 
-  TIMER_START(TIMERDEF_SPLITTING);
-  std::cout << "Splitting surfels." << std::endl;
+  m_timer_listener->StartTimer(ITimerListener::TPhase::SPLITTING);
+  LOG_INFO_STREAM("Splitting surfels.");
   tictoc.tic();
   SplitNearSurfels(pose);
   tictoc.toc_print();
-  TIMER_STOP(TIMERDEF_SPLITTING);
+  m_timer_listener->StopTimer(ITimerListener::TPhase::SPLITTING);
 
-  TIMER_START(TIMERDEF_OBSERVED_FIELD);
-  std::cout << "Generating observed space field OpenCL." << std::endl;
+  m_timer_listener->StartTimer(ITimerListener::TPhase::OBSERVED_FIELD);
+  LOG_INFO_STREAM("Generating observed space field OpenCL.");
   tictoc.tic();
   OpenCLGenerateObservedSpaceField(count_at_max_range, depths);
   tictoc.toc_print();
-  TIMER_STOP(TIMERDEF_OBSERVED_FIELD);
+  m_timer_listener->StopTimer(ITimerListener::TPhase::OBSERVED_FIELD);
 
-  TIMER_START(TIMERDEF_DOT_FIELD);
-  std::cout << "Projecting surfels OpenCL." << std::endl;
+  m_timer_listener->StartTimer(ITimerListener::TPhase::DOT_FIELD);
+  LOG_INFO_STREAM("Projecting surfels OpenCL.");
   tictoc.tic();
   OpenCLProjectAndDeleteSurfels(pose,m_surfels,count_at_max_range,colors);
   tictoc.toc_print();
-  TIMER_STOP(TIMERDEF_DOT_FIELD);
+  m_timer_listener->StopTimer(ITimerListener::TPhase::DOT_FIELD);
 
-  TIMER_START(TIMERDEF_DOT_HULL);
-  std::cout << "Filtering known state hull OpenCL." << std::endl;
+  m_timer_listener->StartTimer(ITimerListener::TPhase::DOT_HULL);
+  LOG_INFO_STREAM("Filtering known state hull OpenCL.");
   tictoc.tic();
   OpenCLFilterKnownStateHullPN(count_at_max_range);
   tictoc.toc_print();
-  TIMER_STOP(TIMERDEF_DOT_HULL);
+  m_timer_listener->StopTimer(ITimerListener::TPhase::DOT_HULL);
 
-  TIMER_START(TIMERDEF_KNOWN_SPACE);
-  std::cout << "Building known space field OpenCL." << std::endl;
+  m_timer_listener->StartTimer(ITimerListener::TPhase::KNOWN_SPACE);
+  LOG_INFO_STREAM("Building known space field OpenCL.");
   tictoc.tic();
   OpenCLBuildKnownSpaceField(count_at_max_range);
   tictoc.toc_print();
-  TIMER_STOP(TIMERDEF_KNOWN_SPACE);
+  m_timer_listener->StopTimer(ITimerListener::TPhase::KNOWN_SPACE);
 
-  TIMER_START(TIMERDEF_KNOWN_SPACE_FILTERING);
-  std::cout << "Filtering known space field OpenCL." << std::endl;
+  m_timer_listener->StartTimer(ITimerListener::TPhase::KNOWN_SPACE_FILTERING);
+  LOG_INFO_STREAM("Filtering known space field OpenCL.");
   tictoc.tic();
   OpenCLFilterKnownSpaceField(count_at_max_range);
   tictoc.toc_print();
-  TIMER_STOP(TIMERDEF_KNOWN_SPACE_FILTERING);
+  m_timer_listener->StopTimer(ITimerListener::TPhase::KNOWN_SPACE_FILTERING);
 
-  TIMER_START(TIMERDEF_CREATION);
-  std::cout << "Creating new surfels OpenCL." << std::endl;
+  m_timer_listener->StartTimer(ITimerListener::TPhase::CREATION);
+  LOG_INFO_STREAM("Creating new surfels OpenCL.");
   tictoc.tic();
   OpenCLCreateSurfels(colors, count_at_max_range);
   tictoc.toc_print();
-  TIMER_STOP(TIMERDEF_CREATION);
+  m_timer_listener->StopTimer(ITimerListener::TPhase::CREATION);
 
-  std::cout << "Total processing: ";
+  LOG_INFO_STREAM("Total processing: ");
   total_tictoc.toc_print();
+  m_timer_listener->StopTimer(ITimerListener::TPhase::TOTAL);
 
-  std::cout << "Publishing: ";
+  LOG_INFO_STREAM("Publishing: ");
   tictoc.tic();
 
-  ShowStableImage(width, height, depths, colors, bearings, pose);
-  ShowNUVG(pose, count_at_max_range, count_at_min_range, count_at_zero);
-  ShowCamera(pose, m_side_padding, m_side_padding, m_min_range);
+  m_visual_listener->ShowStableImage(width, height, depths, colors, bearings, pose);
+  m_visual_listener->ShowNUVG(pose, count_at_max_range, count_at_min_range, count_at_zero);
+  m_visual_listener->ShowCamera(pose, m_side_padding, m_side_padding, m_min_range);
   ShowKnownStateHull(count_at_max_range,height,count_at_min_range,-1,false,
-                          m_known_state_hull_xn_pub,m_opencl_known_state_hull_xn);
+                     IVisualListener::TKnownStateHullIndex::XN,m_opencl_known_state_hull_xn);
   ShowKnownStateHull(count_at_max_range,height,count_at_min_range,-1,false,
-                          m_known_state_hull_xp_pub,m_opencl_known_state_hull_xp);
+                     IVisualListener::TKnownStateHullIndex::XP,m_opencl_known_state_hull_xp);
   ShowKnownStateHull(count_at_max_range,width,count_at_min_range,-1,true,
-                          m_known_state_hull_yn_pub,m_opencl_known_state_hull_yn);
+                     IVisualListener::TKnownStateHullIndex::YN,m_opencl_known_state_hull_yn);
   ShowKnownStateHull(count_at_max_range,width,count_at_min_range,-1,true,
-                          m_known_state_hull_yp_pub,m_opencl_known_state_hull_yp);
+                     IVisualListener::TKnownStateHullIndex::YP,m_opencl_known_state_hull_yp);
   ShowKnownStateHull(width,height,-1,-1,true,
-                          m_known_state_hull_zn_pub,m_opencl_known_state_hull_zn);
+                     IVisualListener::TKnownStateHullIndex::ZN,m_opencl_known_state_hull_zn);
   ShowKnownStateHull(width,height,-1,-1,true,
-                          m_known_state_hull_zp_pub,m_opencl_known_state_hull_zp);
+                     IVisualListener::TKnownStateHullIndex::ZP,m_opencl_known_state_hull_zp);
   ShowKnownStateHull(count_at_max_range,height,count_at_min_range,-1,false,
-                          m_known_state_hull_xn_f_pub,m_opencl_known_state_hull_xn_filtered);
+                     IVisualListener::TKnownStateHullIndex::XNF,m_opencl_known_state_hull_xn_filtered);
   ShowKnownStateHull(count_at_max_range,height,count_at_min_range,-1,false,
-                          m_known_state_hull_xp_f_pub,m_opencl_known_state_hull_xp_filtered);
+                     IVisualListener::TKnownStateHullIndex::XPF,m_opencl_known_state_hull_xp_filtered);
   ShowKnownStateHull(count_at_max_range,width,count_at_min_range,-1,true,
-                          m_known_state_hull_yn_f_pub,m_opencl_known_state_hull_yn_filtered);
+                     IVisualListener::TKnownStateHullIndex::YNF,m_opencl_known_state_hull_yn_filtered);
   ShowKnownStateHull(count_at_max_range,width,count_at_min_range,-1,true,
-                          m_known_state_hull_yp_f_pub,m_opencl_known_state_hull_yp_filtered);
+                     IVisualListener::TKnownStateHullIndex::YPF,m_opencl_known_state_hull_yp_filtered);
   ShowKnownStateHull(width,height,-1,-1,true,
-                          m_known_state_hull_zn_f_pub,m_opencl_known_state_hull_zn_filtered);
+                     IVisualListener::TKnownStateHullIndex::ZNF,m_opencl_known_state_hull_zn_filtered);
   ShowKnownStateHull(width,height,-1,-1,true,
-                          m_known_state_hull_zp_f_pub,m_opencl_known_state_hull_zp_filtered);
-  ShowSurfelCloud();
+                     IVisualListener::TKnownStateHullIndex::ZPF,m_opencl_known_state_hull_zp_filtered);
+  m_visual_listener->ShowSurfelCloud(m_surfels);
   tictoc.toc_print();
 
   const uint64 mem_usage = m_surfels.size() * sizeof(Surfel);
-  std::cout << "Surfels memory usage: " << mem_usage << " (" << mem_usage / 1000000 << " MB)" << std::endl;
+  LOG_INFO_STREAM("Surfels memory usage: " << mem_usage << " (" << mem_usage / 1000000 << " MB)");
+}
+
+void SurfelsUnknownSpace::ShowKnownStateHull(const uint64 width,
+                                            const uint64 height,
+                                            const uint64 special_color_width,
+                                            const uint64 special_color_height,
+                                            const bool transpose,
+                                            IVisualListener::TKnownStateHullIndex index,
+                                            CLBufferPtr buf
+                                            )
+{
+  if (!m_visual_listener->HasShowKnownStateHull(index))
+    return; // listener not interested (save processing time)
+  if (!buf)
+    return;
+
+  CLUInt32Vector vec(width * height);
+  m_opencl_command_queue->enqueueReadBuffer(*buf, CL_TRUE,
+                                            0, width * height * sizeof(cl_uint),
+                                            vec.data());
+
+  Uint32Vector data;
+  data.reserve(width * height);
+  for (cl_uint v : vec)
+    data.push_back(v);
+
+  if (transpose)
+  {
+    Uint32Vector data_transpose(width * height);
+    for (uint64 x = 0; x < width; x++)
+      for (uint64 y = 0; y < height; y++)
+        data_transpose[x * height + y] = vec[y * width + x];
+    data_transpose.swap(data);
+  }
+
+  m_visual_listener->ShowKnownStateHull(width, height, special_color_width, special_color_height, index, data);
 }
 

@@ -11,7 +11,7 @@ For surfels separating empty from occupied space, the implementation also tracks
 Related publications
 --------------------
 
-To appear.
+- R. Monica and J. Aleotti, "Surfel-Based Incremental Reconstruction of the Boundary between Known and Unknown Space," in IEEE Transactions on Visualization and Computer Graphics, doi: [10.1109/TVCG.2020.2990315](https://doi.org/10.1109/TVCG.2020.2990315).
 
 Dependencies
 ------------
@@ -23,6 +23,13 @@ Dependencies
 - Eigen3
 
 The package `rmonica_multi_timer` was used for profiling, but it is currently unpublished. The dependency is optional.
+
+Build
+-----
+
+To build the repository, download it in the ROS workspace and build it with `catkin build` or `catkin_make`.
+
+If you are not using ROS, CMake-based compilation of the core library is possible. Refer to the README in the [surfels_unknown_space/surfels_unknown_space_lib](surfels_unknown_space/surfels_unknown_space_lib/README.md) directory.
 
 Usage
 -----
@@ -84,7 +91,7 @@ Internal parameters configuration:
 - `enable_known_space_filter`: enable known space median filter (default: true)
 - `side_padding`: padding of the input image (default: 5)
 - `back_padding`: padding behind the sensor (default: 2)
-- `hull_unknown_surfel_mult`: unknown surfels are multiplied by this when computing the known state hull (default: 1.5)
+- `hull_unknown_surfel_mult`: unknown surfels radius is multiplied by this when computing the known state hull (default: 1.5)
 - `surfel_thickness`: surfel ellipsoid thickness, in voxels (default: 1.732)
 - `surfel_radius_creation_mult`: surfel radius is multiplied by this (default: 1.2)
 

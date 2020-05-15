@@ -28,47 +28,45 @@
  * OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "surfels_unknown_space.h"
+#include <surfels_unknown_space/surfels_unknown_space.h>
 #include "surfels_unknown_space.cl.h"
-#include "surfels_unknown_space_node.h"
-#include "timer_stub.h"
 
-void SurfelsUnknownSpace::initOpenCL()
+#define LOG_INFO(...) m_logger->LogInfo(__VA_ARGS__)
+#define LOG_INFO_STREAM(s) m_logger->LogInfo(OSS() << s)
+
+#define LOG_ERROR(...) m_logger->LogError(__VA_ARGS__)
+#define LOG_ERROR_STREAM(s) m_logger->LogError(OSS() << s)
+
+#define LOG_FATAL(...) m_logger->LogFatal(__VA_ARGS__)
+#define LOG_FATAL_STREAM(s) m_logger->LogFatal(OSS() << s)
+
+void SurfelsUnknownSpace::initOpenCL(const Config & config)
 {
-  std::string param_string;
-
-  std::string platform_name;
-  m_nh.param<std::string>(PARAM_NAME_OPENCL_PLATFORM_NAME, platform_name, PARAM_DEFAULT_OPENCL_PLATFORM_NAME);
-  std::string device_name;
-  m_nh.param<std::string>(PARAM_NAME_OPENCL_DEVICE_NAME, device_name, PARAM_DEFAULT_OPENCL_DEVICE_NAME);
-
-  bool use_intel;
-  m_nh.param<bool>(PARAM_NAME_OPENCL_USE_INTEL, use_intel, PARAM_DEFAULT_OPENCL_USE_INTEL);
+  const std::string platform_name = config.opencl_platform_name;
+  const std::string device_name = config.opencl_device_name;
+  const bool use_intel = config.opencl_use_intel;
 
   cl_device_type device_type;
-  m_nh.param<std::string>(PARAM_NAME_OPENCL_DEVICE_TYPE, param_string, PARAM_DEFAULT_OPENCL_DEVICE_TYPE);
-  if (param_string == PARAM_VALUE_OPENCL_DEVICE_TYPE_ALL)
+  if (config.opencl_device_type == Config::TOpenCLDeviceType::ALL)
     device_type = CL_DEVICE_TYPE_ALL;
-  else if (param_string == PARAM_VALUE_OPENCL_DEVICE_TYPE_CPU)
+  else if (config.opencl_device_type == Config::TOpenCLDeviceType::CPU)
     device_type = CL_DEVICE_TYPE_CPU;
-  else if (param_string == PARAM_VALUE_OPENCL_DEVICE_TYPE_GPU)
+  else if (config.opencl_device_type == Config::TOpenCLDeviceType::GPU)
     device_type = CL_DEVICE_TYPE_GPU;
   else
   {
-    ROS_ERROR("surfels_unknown_space: invalid parameter opencl_device_type, value '%s', using '%s' instead.",
-              param_string.c_str(), PARAM_VALUE_OPENCL_DEVICE_TYPE_ALL);
+    LOG_ERROR_STREAM("invalid config opencl_device_type");
     device_type = CL_DEVICE_TYPE_ALL;
   }
 
-  int subdevice_size;
-  m_nh.param<int>(PARAM_NAME_OPENCL_SUBDEVICE_SIZE, subdevice_size, PARAM_DEFAULT_OPENCL_SUBDEVICE_SIZE); // 0 = all
+  const int subdevice_size = config.opencl_subdevice_size;
 
   std::vector<cl::Platform> all_platforms;
   cl::Platform::get(&all_platforms);
 
   if (all_platforms.empty())
   {
-    ROS_ERROR("surfels_unknown_space: opencl: no platforms found.");
+    LOG_FATAL_STREAM("surfels_unknown_space: opencl: no platforms found.");
     exit(1);
   }
 
@@ -76,18 +74,18 @@ void SurfelsUnknownSpace::initOpenCL()
     std::string all_platform_names;
     for (uint64 i = 0; i < all_platforms.size(); i++)
       all_platform_names += "\n  -- " + all_platforms[i].getInfo<CL_PLATFORM_NAME>();
-    ROS_INFO_STREAM("surfels_unknown_space: opencl: found platforms:" << all_platform_names);
+    LOG_INFO_STREAM("surfels_unknown_space: opencl: found platforms:" << all_platform_names);
   }
   uint64 platform_id = 0;
   if (!platform_name.empty())
   {
-    ROS_INFO("surfels_unknown_space: opencl: looking for matching platform: %s", platform_name.c_str());
+    LOG_INFO("surfels_unknown_space: opencl: looking for matching platform: %s", platform_name.c_str());
     for (uint64 i = 0; i < all_platforms.size(); i++)
     {
       const std::string plat = all_platforms[i].getInfo<CL_PLATFORM_NAME>();
       if (plat.find(platform_name) != std::string::npos)
       {
-        ROS_INFO("surfels_unknown_space: opencl: found matching platform: %s", plat.c_str());
+        LOG_INFO("surfels_unknown_space: opencl: found matching platform: %s", plat.c_str());
         platform_id = i;
         break;
       }
@@ -95,31 +93,31 @@ void SurfelsUnknownSpace::initOpenCL()
   }
 
   cl::Platform default_platform = all_platforms[platform_id];
-  ROS_INFO_STREAM("surfels_unknown_space: opencl: using platform: " << default_platform.getInfo<CL_PLATFORM_NAME>());
+  LOG_INFO_STREAM("surfels_unknown_space: opencl: using platform: " << default_platform.getInfo<CL_PLATFORM_NAME>());
 
   std::vector<cl::Device> all_devices;
   default_platform.getDevices(device_type, &all_devices);
   if (all_devices.empty())
   {
-      ROS_INFO("surfels_unknown_space: opencl: no devices found.");
+      LOG_FATAL_STREAM("surfels_unknown_space: opencl: no devices found.");
       exit(1);
   }
   {
     std::string all_device_names;
     for (uint64 i = 0; i < all_devices.size(); i++)
       all_device_names += "\n  -- " + all_devices[i].getInfo<CL_DEVICE_NAME>();
-    ROS_INFO_STREAM("surfels_unknown_space: opencl: found devices:" << all_device_names);
+    LOG_INFO_STREAM("surfels_unknown_space: opencl: found devices:" << all_device_names);
   }
   uint64 device_id = 0;
   if (!device_name.empty())
   {
-    ROS_INFO("surfels_unknown_space: opencl: looking for matching device: %s", device_name.c_str());
+    LOG_INFO("surfels_unknown_space: opencl: looking for matching device: %s", device_name.c_str());
     for (uint64 i = 0; i < all_devices.size(); i++)
     {
       const std::string dev = all_devices[i].getInfo<CL_DEVICE_NAME>();
       if (dev.find(device_name) != std::string::npos)
       {
-        ROS_INFO("surfels_unknown_space: opencl: found matching device: %s", dev.c_str());
+        LOG_INFO("surfels_unknown_space: opencl: found matching device: %s", dev.c_str());
         device_id = i;
         break;
       }
@@ -128,12 +126,12 @@ void SurfelsUnknownSpace::initOpenCL()
 
   cl::Device default_device = all_devices[device_id];
   m_opencl_device = CLDevicePtr(new cl::Device(default_device));
-  ROS_INFO_STREAM("surfels_unknown_space: opencl: using device: " << default_device.getInfo<CL_DEVICE_NAME>());
+  LOG_INFO_STREAM("surfels_unknown_space: opencl: using device: " << default_device.getInfo<CL_DEVICE_NAME>());
 
   if (subdevice_size)
   {
 #ifdef CL_VERSION_1_2
-    ROS_INFO("surfels_unknown_space: opencl: using subdevice of size: %d", int(subdevice_size));
+    LOG_INFO("surfels_unknown_space: opencl: using subdevice of size: %d", int(subdevice_size));
     const cl_device_partition_property properties[4] = {CL_DEVICE_PARTITION_BY_COUNTS,
                                                         subdevice_size,
                                                         CL_DEVICE_PARTITION_BY_COUNTS_LIST_END,
@@ -141,11 +139,11 @@ void SurfelsUnknownSpace::initOpenCL()
     std::vector<cl::Device> subdevices;
     const cl_int err = m_opencl_device->createSubDevices(properties, &subdevices);
     if (err != CL_SUCCESS || subdevices.empty())
-      ROS_ERROR("surfels_unknown_space: opencl: could not create subdevice (error: %d), using whole device.", int(err));
+      LOG_ERROR("surfels_unknown_space: opencl: could not create subdevice (error: %d), using whole device.", int(err));
     else
       m_opencl_device = CLDevicePtr(new cl::Device(subdevices[0]));
 #else
-    ROS_ERROR("surfels_unknown_space: opencl: could not create subdevice of size %d: OpenCL 1.2 not supported",
+    LOG_ERROR("surfels_unknown_space: opencl: could not create subdevice of size %d: OpenCL 1.2 not supported",
               int(subdevice_size));
 #endif
   }
@@ -161,15 +159,15 @@ void SurfelsUnknownSpace::initOpenCL()
   cl::Program::Sources sources;
   sources.push_back({source.c_str(),source.length()});
 
-  ROS_INFO("surfels_unknown_space: opencl: building program... ");
+  LOG_INFO("surfels_unknown_space: opencl: building program... ");
   m_opencl_program = CLProgramPtr(new cl::Program(*m_opencl_context,sources));
   if (m_opencl_program->build({*m_opencl_device}) != CL_SUCCESS)
   {
-    ROS_ERROR_STREAM("surfels_unknown_space: opencl: error building opencl_program: " <<
+    LOG_FATAL_STREAM("surfels_unknown_space: opencl: error building opencl_program: " <<
                      m_opencl_program->getBuildInfo<CL_PROGRAM_BUILD_LOG>(*m_opencl_device));
     exit(1);
   }
-  ROS_INFO("surfels_unknown_space: opencl: initialized.");
+  LOG_INFO("surfels_unknown_space: opencl: initialized.");
 }
 
 SurfelsUnknownSpace::CLBufferPtr SurfelsUnknownSpace::OpenCLCreateBuffer(const CLContextPtr context,
@@ -181,7 +179,7 @@ SurfelsUnknownSpace::CLBufferPtr SurfelsUnknownSpace::OpenCLCreateBuffer(const C
                                     size, NULL, &err));
   if (err != CL_SUCCESS)
   {
-    ROS_ERROR("could not allocate buffer '%s' of size %u, error %d", name.c_str(), unsigned(size), int(err));
+    LOG_ERROR("could not allocate buffer '%s' of size %u, error %d", name.c_str(), unsigned(size), int(err));
   }
   return buf;
 }
@@ -200,13 +198,13 @@ void SurfelsUnknownSpace::OpenCLFilterKnownStateHullPN(const uint64 count_at_max
   ret = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_filter_known_state_hull_pn_kernel, cl::NullRange,
                                                      cl::NDRange(count_at_max_range, m_intrinsics->height), cl::NullRange);
   if (ret != CL_SUCCESS)
-    ROS_ERROR("  OpenCLFilterKnownStateHullPN: error m_opencl_filter_known_state_hull_xp_kernel: %d!", ret);
+    LOG_ERROR("  OpenCLFilterKnownStateHullPN: error m_opencl_filter_known_state_hull_xp_kernel: %d!", ret);
   m_opencl_filter_known_state_hull_pn_kernel->setArg(2, *m_opencl_known_state_hull_xn);
   m_opencl_filter_known_state_hull_pn_kernel->setArg(3, *m_opencl_known_state_hull_xn_filtered);
   ret = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_filter_known_state_hull_pn_kernel, cl::NullRange,
                                                      cl::NDRange(count_at_max_range, m_intrinsics->height), cl::NullRange);
   if (ret != CL_SUCCESS)
-    ROS_ERROR("  OpenCLFilterKnownStateHullPN: error m_opencl_filter_known_state_hull_xn_kernel: %d!", ret);
+    LOG_ERROR("  OpenCLFilterKnownStateHullPN: error m_opencl_filter_known_state_hull_xn_kernel: %d!", ret);
 
   m_opencl_filter_known_state_hull_pn_kernel->setArg(0, cl_ulong(m_intrinsics->width));
   m_opencl_filter_known_state_hull_pn_kernel->setArg(1, cl_ulong(count_at_max_range));
@@ -215,13 +213,13 @@ void SurfelsUnknownSpace::OpenCLFilterKnownStateHullPN(const uint64 count_at_max
   ret = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_filter_known_state_hull_pn_kernel, cl::NullRange,
                                                      cl::NDRange(m_intrinsics->width, count_at_max_range), cl::NullRange);
   if (ret != CL_SUCCESS)
-    ROS_ERROR("  OpenCLFilterKnownStateHullPN: error m_opencl_filter_known_state_hull_yp_kernel: %d!", ret);
+    LOG_ERROR("  OpenCLFilterKnownStateHullPN: error m_opencl_filter_known_state_hull_yp_kernel: %d!", ret);
   m_opencl_filter_known_state_hull_pn_kernel->setArg(2, *m_opencl_known_state_hull_yn);
   m_opencl_filter_known_state_hull_pn_kernel->setArg(3, *m_opencl_known_state_hull_yn_filtered);
   ret = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_filter_known_state_hull_pn_kernel, cl::NullRange,
                                                      cl::NDRange(m_intrinsics->width, count_at_max_range), cl::NullRange);
   if (ret != CL_SUCCESS)
-    ROS_ERROR("  OpenCLFilterKnownStateHullPN: error m_opencl_filter_known_state_hull_yn_kernel: %d!", ret);
+    LOG_ERROR("  OpenCLFilterKnownStateHullPN: error m_opencl_filter_known_state_hull_yn_kernel: %d!", ret);
 
   m_opencl_filter_known_state_hull_pn_kernel->setArg(0, cl_ulong(m_intrinsics->height));
   m_opencl_filter_known_state_hull_pn_kernel->setArg(1, cl_ulong(m_intrinsics->width));
@@ -230,13 +228,13 @@ void SurfelsUnknownSpace::OpenCLFilterKnownStateHullPN(const uint64 count_at_max
   ret = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_filter_known_state_hull_pn_kernel, cl::NullRange,
                                                      cl::NDRange(m_intrinsics->height, m_intrinsics->width), cl::NullRange);
   if (ret != CL_SUCCESS)
-    ROS_ERROR("  OpenCLFilterKnownStateHullPN: error m_opencl_filter_known_state_hull_zp_kernel: %d!", ret);
+    LOG_ERROR("  OpenCLFilterKnownStateHullPN: error m_opencl_filter_known_state_hull_zp_kernel: %d!", ret);
   m_opencl_filter_known_state_hull_pn_kernel->setArg(2, *m_opencl_known_state_hull_zn);
   m_opencl_filter_known_state_hull_pn_kernel->setArg(3, *m_opencl_known_state_hull_zn_filtered);
   ret = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_filter_known_state_hull_pn_kernel, cl::NullRange,
                                                      cl::NDRange(m_intrinsics->height, m_intrinsics->width), cl::NullRange);
   if (ret != CL_SUCCESS)
-    ROS_ERROR("  OpenCLFilterKnownStateHullPN: error m_opencl_filter_known_state_hull_zn_kernel: %d!", ret);
+    LOG_ERROR("  OpenCLFilterKnownStateHullPN: error m_opencl_filter_known_state_hull_zn_kernel: %d!", ret);
 
   m_opencl_command_queue->finish();
 }
@@ -416,14 +414,14 @@ void SurfelsUnknownSpace::OpenCLProjectAndDeleteSurfels(const Eigen::Affine3f & 
     }
   }
 
-  TIMER_START(TIMERDEF_DOT_FIELD_INIT);
+  m_timer_listener->StartTimer(ITimerListener::TPhase::DOT_FIELD_INIT);
 
   {
     int ret = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_zero_dot_field_kernel, cl::NullRange,
                                                            cl::NDRange(count_at_max_range, m_intrinsics->width),
                                                            cl::NullRange);
     if (ret != CL_SUCCESS)
-      ROS_ERROR("  m_opencl_zero_normal_dot_field_kernel: error enqueue: %d!", ret);
+      LOG_ERROR("  m_opencl_zero_normal_dot_field_kernel: error enqueue: %d!", ret);
   }
 
   {
@@ -431,7 +429,7 @@ void SurfelsUnknownSpace::OpenCLProjectAndDeleteSurfels(const Eigen::Affine3f & 
                                                            cl::NDRange(count_at_max_range, m_intrinsics->width),
                                                            cl::NullRange);
     if (ret != CL_SUCCESS)
-      ROS_ERROR("  m_opencl_zero_occupancy_ids_kernel: error enqueue: %d!", ret);
+      LOG_ERROR("  m_opencl_zero_occupancy_ids_kernel: error enqueue: %d!", ret);
   }
 
   {
@@ -446,25 +444,25 @@ void SurfelsUnknownSpace::OpenCLProjectAndDeleteSurfels(const Eigen::Affine3f & 
                                                        cl::NDRange(count_at_max_range, m_intrinsics->height),
                                                        cl::NullRange);
     if (ret != CL_SUCCESS)
-      ROS_ERROR("  m_opencl_simple_fill_int_kernel 1: error enqueue: %d!", ret);
+      LOG_ERROR("  m_opencl_simple_fill_int_kernel 1: error enqueue: %d!", ret);
     m_opencl_simple_fill_uint_kernel->setArg(3,*m_opencl_known_state_hull_xn);
     ret = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_simple_fill_uint_kernel, cl::NullRange,
                                                        cl::NDRange(count_at_max_range, m_intrinsics->height),
                                                        cl::NullRange);
     if (ret != CL_SUCCESS)
-      ROS_ERROR("  m_opencl_simple_fill_int_kernel 2: error enqueue: %d!", ret);
+      LOG_ERROR("  m_opencl_simple_fill_int_kernel 2: error enqueue: %d!", ret);
     m_opencl_simple_fill_uint_kernel->setArg(3,*m_opencl_known_state_hull_xp_filtered);
     ret = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_simple_fill_uint_kernel, cl::NullRange,
                                                        cl::NDRange(count_at_max_range, m_intrinsics->height),
                                                        cl::NullRange);
     if (ret != CL_SUCCESS)
-      ROS_ERROR("  m_opencl_simple_fill_int_kernel 3: error enqueue: %d!", ret);
+      LOG_ERROR("  m_opencl_simple_fill_int_kernel 3: error enqueue: %d!", ret);
     m_opencl_simple_fill_uint_kernel->setArg(3,*m_opencl_known_state_hull_xn_filtered);
     ret = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_simple_fill_uint_kernel, cl::NullRange,
                                                        cl::NDRange(count_at_max_range, m_intrinsics->height),
                                                        cl::NullRange);
     if (ret != CL_SUCCESS)
-      ROS_ERROR("  m_opencl_simple_fill_int_kernel 4: error enqueue: %d!", ret);
+      LOG_ERROR("  m_opencl_simple_fill_int_kernel 4: error enqueue: %d!", ret);
     m_opencl_simple_fill_uint_kernel->setArg(0,cl_ulong(1));
     m_opencl_simple_fill_uint_kernel->setArg(1,cl_ulong(count_at_max_range));
     m_opencl_simple_fill_uint_kernel->setArg(2,cl_ulong(0));
@@ -473,25 +471,25 @@ void SurfelsUnknownSpace::OpenCLProjectAndDeleteSurfels(const Eigen::Affine3f & 
                                                        cl::NDRange(count_at_max_range, m_intrinsics->width),
                                                        cl::NullRange);
     if (ret != CL_SUCCESS)
-      ROS_ERROR("  m_opencl_simple_fill_int_kernel 5: error enqueue: %d!", ret);
+      LOG_ERROR("  m_opencl_simple_fill_int_kernel 5: error enqueue: %d!", ret);
     m_opencl_simple_fill_uint_kernel->setArg(3,*m_opencl_known_state_hull_yn);
     ret = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_simple_fill_uint_kernel, cl::NullRange,
                                                        cl::NDRange(count_at_max_range, m_intrinsics->width),
                                                        cl::NullRange);
     if (ret != CL_SUCCESS)
-      ROS_ERROR("  m_opencl_simple_fill_int_kernel 6: error enqueue: %d!", ret);
+      LOG_ERROR("  m_opencl_simple_fill_int_kernel 6: error enqueue: %d!", ret);
     m_opencl_simple_fill_uint_kernel->setArg(3,*m_opencl_known_state_hull_yp_filtered);
     ret = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_simple_fill_uint_kernel, cl::NullRange,
                                                        cl::NDRange(count_at_max_range, m_intrinsics->width),
                                                        cl::NullRange);
     if (ret != CL_SUCCESS)
-      ROS_ERROR("  m_opencl_simple_fill_int_kernel 7: error enqueue: %d!", ret);
+      LOG_ERROR("  m_opencl_simple_fill_int_kernel 7: error enqueue: %d!", ret);
     m_opencl_simple_fill_uint_kernel->setArg(3,*m_opencl_known_state_hull_yn_filtered);
     ret = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_simple_fill_uint_kernel, cl::NullRange,
                                                        cl::NDRange(count_at_max_range, m_intrinsics->width),
                                                        cl::NullRange);
     if (ret != CL_SUCCESS)
-      ROS_ERROR("  m_opencl_simple_fill_int_kernel 8: error enqueue: %d!", ret);
+      LOG_ERROR("  m_opencl_simple_fill_int_kernel 8: error enqueue: %d!", ret);
     m_opencl_simple_fill_uint_kernel->setArg(0,cl_ulong(1));
     m_opencl_simple_fill_uint_kernel->setArg(1,cl_ulong(m_intrinsics->width));
     m_opencl_simple_fill_uint_kernel->setArg(2,cl_ulong(0));
@@ -500,25 +498,25 @@ void SurfelsUnknownSpace::OpenCLProjectAndDeleteSurfels(const Eigen::Affine3f & 
                                                        cl::NDRange(m_intrinsics->width, m_intrinsics->height),
                                                        cl::NullRange);
     if (ret != CL_SUCCESS)
-      ROS_ERROR("  m_opencl_simple_fill_int_kernel 9: error enqueue: %d!", ret);
+      LOG_ERROR("  m_opencl_simple_fill_int_kernel 9: error enqueue: %d!", ret);
     m_opencl_simple_fill_uint_kernel->setArg(3,*m_opencl_known_state_hull_zn);
     ret = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_simple_fill_uint_kernel, cl::NullRange,
                                                        cl::NDRange(m_intrinsics->width, m_intrinsics->height),
                                                        cl::NullRange);
     if (ret != CL_SUCCESS)
-      ROS_ERROR("  m_opencl_simple_fill_int_kernel 10: error enqueue: %d!", ret);
+      LOG_ERROR("  m_opencl_simple_fill_int_kernel 10: error enqueue: %d!", ret);
     m_opencl_simple_fill_uint_kernel->setArg(3,*m_opencl_known_state_hull_zp_filtered);
     ret = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_simple_fill_uint_kernel, cl::NullRange,
                                                        cl::NDRange(m_intrinsics->width, m_intrinsics->height),
                                                        cl::NullRange);
     if (ret != CL_SUCCESS)
-      ROS_ERROR("  m_opencl_simple_fill_int_kernel 11: error enqueue: %d!", ret);
+      LOG_ERROR("  m_opencl_simple_fill_int_kernel 11: error enqueue: %d!", ret);
     m_opencl_simple_fill_uint_kernel->setArg(3,*m_opencl_known_state_hull_zn_filtered);
     ret = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_simple_fill_uint_kernel, cl::NullRange,
                                                        cl::NDRange(m_intrinsics->width, m_intrinsics->height),
                                                        cl::NullRange);
     if (ret != CL_SUCCESS)
-      ROS_ERROR("  m_opencl_simple_fill_int_kernel 12: error enqueue: %d!", ret);
+      LOG_ERROR("  m_opencl_simple_fill_int_kernel 12: error enqueue: %d!", ret);
   }
 
   const uint64 surfels_size = surfels.size();
@@ -531,13 +529,13 @@ void SurfelsUnknownSpace::OpenCLProjectAndDeleteSurfels(const Eigen::Affine3f & 
   uint64 deleted_counter = 0;
   uint64 recolored_counter = 0;
 
-  TIMER_STOP(TIMERDEF_DOT_FIELD_INIT);
+  m_timer_listener->StopTimer(ITimerListener::TPhase::DOT_FIELD_INIT);
 
   int64 counter = -1;
   for (uint64 total_computed = 0; total_computed < surfels_size; )
   {
     counter++;
-    TIMER_START(TIMERDEF_DOT_FIELD_UPLOAD(counter));
+    m_timer_listener->StartTimer(ITimerListener::TPhase::DOT_FIELD_UPLOAD, counter);
 
     const uint64 offset = total_computed;
 
@@ -549,9 +547,9 @@ void SurfelsUnknownSpace::OpenCLProjectAndDeleteSurfels(const Eigen::Affine3f & 
     }
     total_computed += uploaded_count;
 
-    std::cout << "  iteration: from offset " << offset <<
+    LOG_INFO_STREAM("  iteration: from offset " << offset <<
                  " (total is " << surfels_size <<
-                 ", uploaded " << uploaded_count << ")" << std::endl;
+                 ", uploaded " << uploaded_count << ")");
 
     m_opencl_command_queue->enqueueWriteBuffer(*m_opencl_surfels, CL_TRUE, 0,
                                                uploaded_count * sizeof(OpenCLSurfel),
@@ -569,20 +567,20 @@ void SurfelsUnknownSpace::OpenCLProjectAndDeleteSurfels(const Eigen::Affine3f & 
                                                          cl::NDRange(1),
                                                          cl::NullRange);
       if (ret != CL_SUCCESS)
-        ROS_ERROR("  m_opencl_simple_fill_uint_kernel: m_opencl_ids_to_be_deleted error enqueue: %d!", ret);
+        LOG_ERROR("  m_opencl_simple_fill_uint_kernel: m_opencl_ids_to_be_deleted error enqueue: %d!", ret);
       m_opencl_simple_fill_uint_kernel->setArg(3,*m_opencl_ids_to_be_recolored);
       ret = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_simple_fill_uint_kernel, cl::NullRange,
                                                          cl::NDRange(2),
                                                          cl::NullRange);
       if (ret != CL_SUCCESS)
-        ROS_ERROR("  m_opencl_simple_fill_uint_kernel: m_opencl_ids_to_be_recolored error enqueue: %d!", ret);
+        LOG_ERROR("  m_opencl_simple_fill_uint_kernel: m_opencl_ids_to_be_recolored error enqueue: %d!", ret);
     }
 
-    TIMER_STOP(TIMERDEF_DOT_FIELD_UPLOAD(counter));
+    m_timer_listener->StopTimer(ITimerListener::TPhase::DOT_FIELD_UPLOAD, counter);
 
     {
       // project all surfels
-      TIMER_START(TIMERDEF_DOT_FIELD_PROJECT(counter));
+      m_timer_listener->StartTimer(ITimerListener::TPhase::DOT_FIELD_PROJECT, counter);
       const uint64 iterations = uploaded_count / m_surfels_projection_threads + !!(uploaded_count % m_surfels_projection_threads);
       m_opencl_projectsurfels_kernel->setArg(1,cl_ulong(m_surfels_projection_threads)); // batch size
       m_opencl_projectsurfels_kernel->setArg(2,cl_ulong(iterations));// iterations
@@ -603,7 +601,7 @@ void SurfelsUnknownSpace::OpenCLProjectAndDeleteSurfels(const Eigen::Affine3f & 
       int ret2 = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_projectsurfels_kernel, cl::NullRange,
                                                    cl::NDRange(m_surfels_projection_threads), cl::NullRange);
       if (ret2 != CL_SUCCESS)
-        ROS_ERROR("  OpenCLProjectSurfels: all: error enqueue: %d!", ret2);
+        LOG_ERROR("  OpenCLProjectSurfels: all: error enqueue: %d!", ret2);
 
 //      m_opencl_command_queue->enqueueReadBuffer(*m_opencl_projected_internal_ids, CL_TRUE,
 //                                                0, sizeof(cl_uint),
@@ -612,32 +610,32 @@ void SurfelsUnknownSpace::OpenCLProjectAndDeleteSurfels(const Eigen::Affine3f & 
 //                                                0, sizeof(cl_uint),
 //                                                &external_total);
       m_opencl_command_queue->finish();
-      TIMER_STOP(TIMERDEF_DOT_FIELD_PROJECT(counter));
+      m_timer_listener->StopTimer(ITimerListener::TPhase::DOT_FIELD_PROJECT, counter);
       // project surfels in the NUVG
-      TIMER_START(TIMERDEF_DOT_FIELD_INTERNAL(counter));
+      m_timer_listener->StartTimer(ITimerListener::TPhase::DOT_FIELD_INTERNAL, counter);
       {
         m_opencl_project_internal_surfels_kernel->setArg(2,cl_ulong(offset));
         ret2 = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_project_internal_surfels_kernel, cl::NullRange,
                                                             cl::NDRange(m_surfels_projection_threads), cl::NullRange);
         if (ret2 != CL_SUCCESS)
-          ROS_ERROR("  OpenCLProjectSurfels: internal: error enqueue: %d!", ret2);
+          LOG_ERROR("  OpenCLProjectSurfels: internal: error enqueue: %d!", ret2);
         m_opencl_command_queue->finish();
       }
-      TIMER_STOP(TIMERDEF_DOT_FIELD_INTERNAL(counter));
+      m_timer_listener->StopTimer(ITimerListener::TPhase::DOT_FIELD_INTERNAL, counter);
       // project surfels outside the NUVG
-      TIMER_START(TIMERDEF_DOT_FIELD_HULL(counter));
+      m_timer_listener->StartTimer(ITimerListener::TPhase::DOT_FIELD_HULL, counter);
       {
         ret2 = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_project_external_surfels_kernel, cl::NullRange,
                                                             cl::NDRange(m_surfels_projection_threads), cl::NullRange);
         if (ret2 != CL_SUCCESS)
-          ROS_ERROR("  OpenCLProjectSurfels: external: error enqueue: %d!", ret2);
+          LOG_ERROR("  OpenCLProjectSurfels: external: error enqueue: %d!", ret2);
         m_opencl_command_queue->finish();
       }
 
-      TIMER_STOP(TIMERDEF_DOT_FIELD_HULL(counter));
+      m_timer_listener->StopTimer(ITimerListener::TPhase::DOT_FIELD_HULL, counter);
     }
 
-    TIMER_START(TIMERDEF_DOT_FIELD_DELETE(counter));
+    m_timer_listener->StartTimer(ITimerListener::TPhase::DOT_FIELD_DELETE, counter);
     CLUInt32Vector to_be_deleted_buf(uploaded_count + 1);
     m_opencl_command_queue->enqueueReadBuffer(*m_opencl_ids_to_be_deleted, CL_TRUE,
                                               0, (uploaded_count + 1) * sizeof(cl_uint),
@@ -647,9 +645,9 @@ void SurfelsUnknownSpace::OpenCLProjectAndDeleteSurfels(const Eigen::Affine3f & 
       DeleteSurfel(offset + to_be_deleted_buf[i + 1]);
       deleted_counter++;
     }
-    TIMER_STOP(TIMERDEF_DOT_FIELD_DELETE(counter));
+    m_timer_listener->StopTimer(ITimerListener::TPhase::DOT_FIELD_DELETE, counter);
 
-    TIMER_START(TIMERDEF_DOT_FIELD_RECOLOR(counter));
+    m_timer_listener->StartTimer(ITimerListener::TPhase::DOT_FIELD_RECOLOR, counter);
     OpenCLRecolorVector to_be_recolored_buf(uploaded_count + 1);
     m_opencl_command_queue->enqueueReadBuffer(*m_opencl_ids_to_be_recolored, CL_TRUE,
                                               0, (uploaded_count + 1) * sizeof(OpenCLRecolor),
@@ -668,11 +666,11 @@ void SurfelsUnknownSpace::OpenCLProjectAndDeleteSurfels(const Eigen::Affine3f & 
       surfel.cb = b;
       recolored_counter++;
     }
-    TIMER_STOP(TIMERDEF_DOT_FIELD_RECOLOR(counter));
+    m_timer_listener->StopTimer(ITimerListener::TPhase::DOT_FIELD_RECOLOR, counter);
   }
 
-  std::cout << "  deleted: " << deleted_counter << std::endl;
-  std::cout << "  recolored: " << recolored_counter << std::endl;
+  LOG_INFO_STREAM("  deleted: " << deleted_counter);
+  LOG_INFO_STREAM("  recolored: " << recolored_counter);
   m_opencl_command_queue->finish();
 }
 
@@ -751,33 +749,33 @@ void SurfelsUnknownSpace::OpenCLBuildKnownSpaceField(const uint64 count_at_max_r
   ret = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_zero_known_space_field_kernel, cl::NullRange,
                                                  cl::NDRange(count_at_max_range, width), cl::NullRange);
   if (ret != CL_SUCCESS)
-    ROS_ERROR("  OpenCLBuildKnownSpaceField: zero_known_space_frustum: error enqueue: %d!", ret);
+    LOG_ERROR("  OpenCLBuildKnownSpaceField: zero_known_space_frustum: error enqueue: %d!", ret);
 
   // follow all the paths
   ret = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_path_knownxf_kernel, cl::NullRange,
                                                cl::NDRange(height,depth), cl::NullRange);
   if (ret != CL_SUCCESS)
-    ROS_ERROR("  OpenCLBuildKnownSpaceField 1: error enqueue: %d!", ret);
+    LOG_ERROR("  OpenCLBuildKnownSpaceField 1: error enqueue: %d!", ret);
   ret = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_path_knownxb_kernel, cl::NullRange,
                                                cl::NDRange(height,depth), cl::NullRange);
   if (ret != CL_SUCCESS)
-    ROS_ERROR("  OpenCLBuildKnownSpaceField 2: error enqueue: %d!", ret);
+    LOG_ERROR("  OpenCLBuildKnownSpaceField 2: error enqueue: %d!", ret);
   ret = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_path_knownyf_kernel, cl::NullRange,
                                                cl::NDRange(depth,width), cl::NullRange);
   if (ret != CL_SUCCESS)
-    ROS_ERROR("  OpenCLBuildKnownSpaceField 3: error enqueue: %d!", ret);
+    LOG_ERROR("  OpenCLBuildKnownSpaceField 3: error enqueue: %d!", ret);
   ret = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_path_knownyb_kernel, cl::NullRange,
                                                cl::NDRange(depth,width), cl::NullRange);
   if (ret != CL_SUCCESS)
-    ROS_ERROR("  OpenCLBuildKnownSpaceField 4: error enqueue: %d!", ret);
+    LOG_ERROR("  OpenCLBuildKnownSpaceField 4: error enqueue: %d!", ret);
   ret = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_path_knownzf_kernel, cl::NullRange,
                                                cl::NDRange(width,height), cl::NullRange);
   if (ret != CL_SUCCESS)
-    ROS_ERROR("  OpenCLBuildKnownSpaceField 5: error enqueue: %d!", ret);
+    LOG_ERROR("  OpenCLBuildKnownSpaceField 5: error enqueue: %d!", ret);
   ret = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_path_knownzb_kernel, cl::NullRange,
                                                cl::NDRange(width,height), cl::NullRange);
   if (ret != CL_SUCCESS)
-    ROS_ERROR("  OpenCLBuildKnownSpaceField 6: error enqueue: %d!", ret);
+    LOG_ERROR("  OpenCLBuildKnownSpaceField 6: error enqueue: %d!", ret);
 
   m_opencl_command_queue->finish();
 }
@@ -834,12 +832,12 @@ void SurfelsUnknownSpace::OpenCLFilterKnownSpaceField(const uint64 count_at_max_
   }
 
   if (ret != CL_SUCCESS)
-    ROS_ERROR("  OpenCLFilterKnownSpaceField: error enqueue: %d!", ret);
+    LOG_ERROR("  OpenCLFilterKnownSpaceField: error enqueue: %d!", ret);
 
   m_opencl_command_queue->enqueueReadBuffer(*m_opencl_filter_known_space_field_counter, CL_TRUE,
                                             0, sizeof(cl_uint),
                                             &counter);
-  std::cout << "Filtered " << counter << " voxels" << std::endl;
+  LOG_INFO_STREAM("Filtered " << counter << " voxels");
 }
 
 void SurfelsUnknownSpace::OpenCLGenerateObservedSpaceField(
@@ -942,13 +940,13 @@ void SurfelsUnknownSpace::OpenCLCreateSurfels(const FloatVector & colors, const 
     ret = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_create_new_surfels_kernel, cl::NullRange,
                                                        cl::NDRange(count_at_max_range, m_intrinsics->width), cl::NullRange);
     if (ret != CL_SUCCESS)
-      ROS_ERROR("  OpenCLCreateSurfels: error enqueue: %d!", ret);
+      LOG_ERROR("  OpenCLCreateSurfels: error enqueue: %d!", ret);
     m_opencl_command_queue->enqueueReadBuffer(*m_opencl_creation_counters, CL_TRUE, 0,
                                               sizeof(OpenCLCreationCounters),
                                               &counters);
 
-    std::cout << "  iteration: created " << counters.created << ", failed " <<
-                 counters.creation_failed << " surfels." << std::endl;
+    LOG_INFO_STREAM("  iteration: created " << counters.created << ", failed " <<
+                    counters.creation_failed << " surfels.");
 
     if (!counters.created)
       break;
@@ -1017,7 +1015,7 @@ void SurfelsUnknownSpace::OpenCLCreateSurfels(const FloatVector & colors, const 
   }
   while (counters.unfinished);
 
-  std::cout << "  Total created: " << total_created << " failed: " << total_failed << std::endl;
+  LOG_INFO_STREAM("  Total created: " << total_created << " failed: " << total_failed);
 }
 
 void SurfelsUnknownSpace::OpenCLGetAllBearings(Vector3fVector & bearings)
@@ -1040,7 +1038,7 @@ void SurfelsUnknownSpace::OpenCLGetAllBearings(Vector3fVector & bearings)
   int ret = m_opencl_command_queue->enqueueNDRangeKernel(*m_opencl_get_all_bearings_kernel, cl::NullRange,
                                                          cl::NDRange(m_intrinsics->width, m_intrinsics->height), cl::NullRange);
   if (ret != CL_SUCCESS)
-    ROS_ERROR("  OpenCLGetAllBearings: error enqueue: %d!", ret);
+    LOG_ERROR("  OpenCLGetAllBearings: error enqueue: %d!", ret);
 
   CLFloat3Vector bearings_buf(image_size);
   m_opencl_command_queue->enqueueReadBuffer(*m_opencl_bearings, CL_TRUE,
@@ -1054,7 +1052,7 @@ void SurfelsUnknownSpace::OpenCLGetAllBearings(Vector3fVector & bearings)
     Eigen::Vector3f bb = bearings[i];
     if ((bb - b).norm() > 0.01)
     {
-      //ROS_ERROR_STREAM("Error: bearing should be " << bb.transpose() << " it is " << b.transpose());
+      //LOG_ERROR_STREAM("Error: bearing should be " << bb.transpose() << " it is " << b.transpose());
       at_least_one_wrong_bearing = true;
     }
     else
@@ -1065,7 +1063,7 @@ void SurfelsUnknownSpace::OpenCLGetAllBearings(Vector3fVector & bearings)
     }
   }
   if (at_least_one_wrong_bearing)
-    ROS_ERROR("Error: at_least_one_wrong_bearing");
+    LOG_ERROR("Error: at_least_one_wrong_bearing");
 }
 
 void SurfelsUnknownSpace::OpenCLUpdateCurrentPoseAndIntrinsics(const Eigen::Affine3f & pose,

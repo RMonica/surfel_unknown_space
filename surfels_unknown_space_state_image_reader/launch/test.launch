@@ -13,7 +13,7 @@
 
     <param name="frontel_normal_as_color" type="bool" value="true" />
 
-    <param name="max_range" type="double" value="5.0" />
+    <param name="max_range" type="double" value="3.0" />
   </node>
 
   <node pkg="surfels_unknown_space_state_image_reader" type="state_image_reader" name="rosbag_reader" output="screen" clear_params="true" >

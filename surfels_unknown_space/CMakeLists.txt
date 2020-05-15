@@ -46,44 +46,30 @@ catkin_package(
 add_definitions(-DCL_HPP_MINIMUM_OPENCL_VERSION=110)
 add_definitions(-DCL_HPP_TARGET_OPENCL_VERSION=120)
 
+add_subdirectory("surfels_unknown_space_lib")
+
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
 # include_directories(include)
 include_directories(
   ${catkin_INCLUDE_DIRS}
-  ${PCL_INCLUDE_DIRS}
-  ${Boost_INCLUDE_DIRS}
-  ${Eigen3_INCLUDE_DIRS}
-  ${OpenCL_INCLUDE_DIRS}
   ${rmonica_multi_timer_INCLUDE_DIRS}
+  ${surfels_unknown_space_lib_INCLUDE_DIRS}
 )
 
-add_custom_command(
-  COMMAND ${CMAKE_COMMAND} -P "${CMAKE_CURRENT_LIST_DIR}/cmake/surfels_unknown_space_cl.cmake"
-  MAIN_DEPENDENCY "${CMAKE_CURRENT_LIST_DIR}/src/surfels_unknown_space.cl"
-  OUTPUT "${CMAKE_CURRENT_LIST_DIR}/src/surfels_unknown_space.cl.h"
-  VERBATIM
-  )
-
 add_executable(surfels_unknown_space 
-  src/surfels_unknown_space.cpp
   src/surfels_unknown_space_node.cpp
-
-  src/surfels_unknown_space.cl.h
-  src/surfels_unknown_space_opencl.cpp
-
   src/surfels_unknown_space_visualization.cpp
   )
 
 add_dependencies(surfels_unknown_space ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
+#message(FATAL_ERROR "surfels_unknown_space_lib_LIBRARIES ${surfels_unknown_space_lib_LIBRARIES}")
+
 target_link_libraries(surfels_unknown_space
   ${catkin_LIBRARIES}
-  ${PCL_LIBRARIES}
-  ${Boost_LIBRARIES}
-  ${Eigen3_LIBRARIES}
-  ${OpenCL_LIBRARIES}
   ${rmonica_multi_timer_LIBRARIES}
+  ${surfels_unknown_space_lib_LIBRARIES}
 )
 
 #############

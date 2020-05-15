@@ -31,23 +31,13 @@
 #ifndef SURFELS_UNKNOWN_SPACE_H
 #define SURFELS_UNKNOWN_SPACE_H
 
-// ROS
-#include <ros/ros.h>
-#include <sensor_msgs/Image.h>
-#include <sensor_msgs/PointCloud2.h>
-#include <pcl_conversions/pcl_conversions.h>
-#include <eigen_conversions/eigen_msg.h>
-#include <actionlib/server/simple_action_server.h>
-#include <actionlib/client/simple_action_client.h>
-#include <visualization_msgs/Marker.h>
-#include <std_msgs/Empty.h>
-
 // STL
 #include <stdint.h>
 #include <vector>
 #include <string>
 #include <sstream>
 #include <set>
+#include <iostream>
 
 // PCL
 #include <pcl/point_cloud.h>
@@ -58,12 +48,6 @@
 // Eigen
 #include <Eigen/Dense>
 #include <Eigen/StdVector>
-
-// custom
-#include <surfels_unknown_space_msgs/FrameState.h>
-#include <surfels_unknown_space_msgs/SetSurfelCloudAction.h>
-#include <surfels_unknown_space_msgs/GetSurfelCloudAction.h>
-#include <surfels_unknown_space_msgs/GetTimersAction.h>
 
 // Boost
 #include <boost/thread/mutex.hpp>
@@ -88,7 +72,7 @@ class SurfelsUnknownSpace
   typedef std::vector<uint8> Uint8Vector;
   typedef std::vector<int64> Int64Vector;
   typedef std::vector<uint32> Uint32Vector;
-  typedef boost::shared_ptr<Uint32Vector> Uint32VectorPtr;
+  typedef std::shared_ptr<Uint32Vector> Uint32VectorPtr;
   typedef std::vector<int32> Int32Vector;
   typedef std::vector<uint16> Uint16Vector;
   typedef std::vector<Uint64Vector> Uint64VectorVector;
@@ -119,6 +103,8 @@ class SurfelsUnknownSpace
   typedef std::vector<cl_int> CLInt32Vector;
   typedef std::vector<cl_uint> CLUInt32Vector;
   typedef std::vector<cl_ushort2> CLUShort2Vector;
+
+  typedef std::ostringstream OSS;
 
   template <class T>
     inline static T SQR(const T & a) {return a * a; }
@@ -162,56 +148,173 @@ class SurfelsUnknownSpace
   };
   typedef std::vector<Surfel, Eigen::aligned_allocator<Surfel> > SurfelVector;
 
-  struct OpenCLSurfel
+  struct Config
   {
-    cl_float position[3];
-    cl_float radius;
-    cl_float normal[3];
-    cl_uchar erased;
-    cl_uchar is_surfel;
+    double max_range = 5.0;
+    double min_range = 0.5;
+    float unknown_surfels_radius_mult_pn = 1.5f;
+    float surfel_thickness = std::sqrt(3.0);
+    float surfel_radius_mult = 1.2f;
+    bool enable_known_space_filter = true;
+    float dot_field_valid_th = 0.173f;
+    uint64 back_padding = 2;
+    uint64 side_padding = 5;
+    uint64 opencl_max_surfels_in_mem = 1000 * 1000;
+    uint64 surfels_projection_threads = 1024 * 8;
+    uint64 downsample_factor = 4;
 
-    OpenCLSurfel()
+    enum class TOpenCLDeviceType
     {
-      for (uint64 i = 0; i < 3; i++)
-        position[i] = 0;
-      for (uint64 i = 0; i < 3; i++)
-        normal[i] = 0;
-      radius = 0.0;
-      erased = false;
-      is_surfel = false;
+      ALL,
+      CPU,
+      GPU
+    };
+
+    std::string opencl_platform_name = "";
+    std::string opencl_device_name = "";
+    TOpenCLDeviceType opencl_device_type = TOpenCLDeviceType::ALL;
+    uint64 opencl_subdevice_size = 0; // 0 = all
+    bool opencl_use_intel = false;    // activates a workaround for intel compiler bug
+  };
+
+  class ILogger
+  {
+    public:
+    virtual ~ILogger() {}
+
+    // override these four
+    virtual void LogInfo(const std::string & msg) {std::cout << msg << std::endl; }
+    virtual void LogWarn(const std::string & msg) {std::cout << msg << std::endl; }
+    virtual void LogError(const std::string & msg) {std::cout << msg << std::endl; }
+    virtual void LogFatal(const std::string & msg) {std::cout << msg << std::endl; }
+
+    void LogInfo(const std::basic_ostream<char> & ostr) {LogInfo(reinterpret_cast<const OSS &>(ostr).str()); }
+    void LogWarn(const std::basic_ostream<char> & ostr) {LogWarn(reinterpret_cast<const OSS &>(ostr).str()); }
+    void LogError(const std::basic_ostream<char> & ostr) {LogError(reinterpret_cast<const OSS &>(ostr).str()); }
+    void LogFatal(const std::basic_ostream<char> & ostr) {LogFatal(reinterpret_cast<const OSS &>(ostr).str()); }
+
+    std::string ApplyArgs(const char * const s, va_list & argp)
+    {
+      std::vector<char> data(10000);
+      vsnprintf(data.data(), data.size(), s, argp);
+      return std::string(data.data());
     }
 
-    explicit OpenCLSurfel(const Surfel & other)
+    void LogInfo(const char * const s, ...) {va_list argp; va_start(argp, s); LogInfo(ApplyArgs(s, argp)); va_end(argp); }
+    void LogWarn(const char * const s, ...) {va_list argp; va_start(argp, s); LogWarn(ApplyArgs(s, argp)); va_end(argp); }
+    void LogError(const char * const s, ...) {va_list argp; va_start(argp, s); LogError(ApplyArgs(s, argp)); va_end(argp); }
+    void LogFatal(const char * const s, ...) {va_list argp; va_start(argp, s); LogFatal(ApplyArgs(s, argp)); va_end(argp); }
+  };
+  typedef std::shared_ptr<ILogger> ILoggerPtr;
+
+  class IVisualListener
+  {
+    public:
+    virtual ~IVisualListener() {}
+
+    enum class TKnownStateHullIndex { XP, XN, YP, YN, ZP, ZN,
+                                      XPF, XNF, YPF, YNF, ZPF, ZNF };
+
+    virtual void ShowSurfelCloud(const SurfelVector & surfels) {}
+    virtual void ShowStableImage(const uint64 width, const uint64 height,
+                                 const FloatVector &depths, const FloatVector &colors,
+                                 const Vector3fVector &bearings, const Eigen::Affine3f &pose) {}
+
+    virtual bool HasShowKnownStateHull(const TKnownStateHullIndex index) { return false; }
+      // return true if ShowKnownStateHull must be called
+    virtual void ShowKnownStateHull(const uint64 width,
+                                    const uint64 height,
+                                    const uint64 special_color_width,
+                                    const uint64 special_color_height,
+                                    const TKnownStateHullIndex index,
+                                    const Uint32Vector & data
+                                    ) {}
+
+    virtual void ShowCamera(const Eigen::Affine3f &pose,
+                            const float padding_x,
+                            const float padding_y,
+                            const float size_z) {}
+
+    virtual void ShowNUVG(const Eigen::Affine3f & pose,
+                          const uint64 count_at_max_range,
+                          const uint64 count_at_min_range,
+                          const uint64 count_at_zero) {}
+  };
+  typedef std::shared_ptr<IVisualListener> IVisualListenerPtr;
+
+  class ITimerListener
+  {
+    public:
+    enum class TPhase
     {
-      for (uint64 i = 0; i < 3; i++)
-        position[i] = other.position[i];
-      radius = other.radius;
-      for (uint64 i = 0; i < 3; i++)
-        normal[i] = other.normal[i];
-      erased = other.erased;
-      is_surfel = other.is_surfel;
+      SUBSAMPLE,
+      INIT,
+      BEARINGS,
+      SPLITTING,
+      OBSERVED_FIELD,
+      DOT_FIELD,
+        DOT_FIELD_INIT,
+        DOT_FIELD_UPLOAD,
+        DOT_FIELD_PROJECT,
+        DOT_FIELD_INTERNAL,
+        DOT_FIELD_HULL,
+        DOT_FIELD_DELETE,
+        DOT_FIELD_RECOLOR,
+      DOT_HULL,
+      KNOWN_SPACE,
+      KNOWN_SPACE_FILTERING,
+      CREATION,
+      TOTAL,
+    };
+
+    virtual ~ITimerListener() {}
+
+    virtual void NewFrame() {}
+    virtual void StartTimer(const TPhase phase, const uint64 index = 0) {}
+    virtual void StopTimer(const TPhase phase, const uint64 index = 0) {}
+  };
+  typedef std::shared_ptr<ITimerListener> ITimerListenerPtr;
+
+  struct Intrinsics
+  {
+    float center_x,center_y;
+    float focal_x,focal_y,focal_avg;
+    uint64 width,height;
+    float min_range,max_range;
+
+    Intrinsics(const float cx,const float cy,const float fx,const float fy,const uint64 w,const uint64 h,
+               const float mrange,const float Mrange)
+    {
+      center_x = cx;
+      center_y = cy;
+      focal_x = fx;
+      focal_y = fy;
+      focal_avg = (fx + fy) / 2.0;
+      width = w;
+      height = h;
+      min_range = mrange;
+      max_range = Mrange;
     }
 
-    Surfel toSurfel()
+    Intrinsics RescaleInt(const uint64 scale) const
     {
-      Surfel result;
-      for (uint64 i = 0; i < 3; i++)
-        result.position[i] = position[i];
-      result.radius = radius;
-      for (uint64 i = 0; i < 3; i++)
-        result.normal[i] = normal[i];
-      result.erased = erased;
-      result.is_surfel = is_surfel;
-      return result;
+      return Intrinsics(center_x / scale,center_y / scale,
+                        focal_x / scale,focal_y / scale,
+                        width / scale,height / scale,
+                        min_range, max_range);
     }
-  } __attribute__((packed));
-  typedef std::vector<OpenCLSurfel> OpenCLSurfelVector;
+  };
+  typedef std::shared_ptr<Intrinsics> IntrinsicsPtr;
+  typedef std::shared_ptr<const Intrinsics> IntrinsicsConstPtr;
 
-  SurfelsUnknownSpace(ros::NodeHandle & nh);
+  SurfelsUnknownSpace(const Config & config,
+                      const ILoggerPtr logger,
+                      const IVisualListenerPtr visual_listener,
+                      const ITimerListenerPtr timer_listener);
 
   virtual ~SurfelsUnknownSpace();
 
-  void initOpenCL();
+  void initOpenCL(const Config &config);
 
   float getVoxelSideAtDistance(const float distance) const;
   float getVoxelSideAtDistance(const float distance, float min_range) const;
@@ -266,90 +369,39 @@ class SurfelsUnknownSpace
 
   uint64 CreateSurfel(const Surfel & surfel);
   void DeleteSurfel(const uint64 id);
-  void ClearFrontels() {m_surfels.clear(); m_deleted_surfels.clear(); }
 
-  void onFrameState(const surfels_unknown_space_msgs::FrameStateConstPtr & state_ptr);
+  void ClearSurfels() {m_surfels.clear(); m_deleted_surfels.clear(); }
+  void SetSurfels(const SurfelVector & s) {m_deleted_surfels.clear(); m_surfels = s; }
+  SurfelVector GetSurfels();
 
-  void ProcessFrameWorker();
-  void ProcessFrame(surfels_unknown_space_msgs::FrameStateConstPtr state_ptr);
+  IntrinsicsConstPtr GetIntrinsics() {return m_intrinsics; }
 
-  void onGetSurfelCloudAction(const surfels_unknown_space_msgs::GetSurfelCloudGoalConstPtr & goal);
-  void onSetSurfelCloudAction(const surfels_unknown_space_msgs::SetSurfelCloudGoalConstPtr & goal);
-  void onGetTimersAction(const surfels_unknown_space_msgs::GetTimersGoalConstPtr & goal);
+  void ProcessFrame(const uint64 input_width, const uint64 input_height,
+                    const FloatVector & raw_depths, const FloatVector & raw_colors,
+                    const Eigen::Affine3f & pose, const Intrinsics &intrinsics);
 
-  void ShowNUVG(const Eigen::Affine3f &pose,
-                  const uint64 count_at_max_range,
-                  const uint64 count_at_min_range,
-                  const uint64 count_at_zero);
-  void ShowSurfelCloud();
-  void ShowStableImage(const uint64 width, const uint64 height,
-                       const FloatVector &depths, const FloatVector &colors,
-                       const Vector3fVector &bearings, const Eigen::Affine3f &pose);
   void ShowKnownStateHull(const uint64 width,
-                               const uint64 height,
-                               const uint64 special_color_width,
-                               const uint64 special_color_height,
-                               const bool transpose,
-                               ros::Publisher & pub,
-                               CLBufferPtr buf
-                               );
-  void ShowCamera(const Eigen::Affine3f &pose,
-                  const float padding_x,
-                  const float padding_y,
-                  const float size_z);
+                          const uint64 height,
+                          const uint64 special_color_width,
+                          const uint64 special_color_height,
+                          const bool transpose,
+                          IVisualListener::TKnownStateHullIndex index,
+                          CLBufferPtr buf
+                          );
 
   private:
-  ros::NodeHandle & m_nh;
-
   SurfelVector m_surfels;
   Uint64Set m_deleted_surfels;
 
-  ros::Subscriber m_frame_state_sub;
-
-  ros::Publisher m_stable_image_pub;
-  ros::Publisher m_surfel_cloud_pub;
-  ros::Publisher m_known_space_frustum_pub;
-  ros::Publisher m_nuvg_display_pub;
-  ros::Publisher m_camera_display_pub;
-  ros::Publisher m_known_state_hull_xp_pub;
-  ros::Publisher m_known_state_hull_xn_pub;
-  ros::Publisher m_known_state_hull_yp_pub;
-  ros::Publisher m_known_state_hull_yn_pub;
-  ros::Publisher m_known_state_hull_zp_pub;
-  ros::Publisher m_known_state_hull_zn_pub;
-  ros::Publisher m_known_state_hull_xp_f_pub;
-  ros::Publisher m_known_state_hull_xn_f_pub;
-  ros::Publisher m_known_state_hull_yp_f_pub;
-  ros::Publisher m_known_state_hull_yn_f_pub;
-  ros::Publisher m_known_state_hull_zp_f_pub;
-  ros::Publisher m_known_state_hull_zn_f_pub;
+  IVisualListenerPtr m_visual_listener;
+  ITimerListenerPtr m_timer_listener;
+  ILoggerPtr m_logger;
 
   bool m_frontel_normal_as_color;
 
   bool m_enable_known_space_filter;
   float m_dot_field_safety_th;
   float m_dot_field_valid_th;
-
-  surfels_unknown_space_msgs::FrameStateConstPtr m_frame_state;
-
-  boost::mutex m_mutex;
-  boost::condition_variable m_cond_var;
-  uint32 m_requests_pending;
-  bool m_processing;
-  ThreadPtr m_thread;
-
-  ros::Publisher m_ack_publisher;
-
-  typedef actionlib::SimpleActionServer<surfels_unknown_space_msgs::SetSurfelCloudAction> SetSurfelCloudActionServer;
-  typedef std::shared_ptr<SetSurfelCloudActionServer> SetSurfelCloudActionServerPtr;
-  typedef actionlib::SimpleActionServer<surfels_unknown_space_msgs::GetSurfelCloudAction> GetSurfelCloudActionServer;
-  typedef std::shared_ptr<GetSurfelCloudActionServer> GetSurfelCloudActionServerPtr;
-  typedef actionlib::SimpleActionServer<surfels_unknown_space_msgs::GetTimersAction> GetTimersActionServer;
-  typedef std::shared_ptr<GetTimersActionServer> GetTimersActionServerPtr;
-
-  SetSurfelCloudActionServerPtr m_set_surfel_cloud_action_server;
-  GetSurfelCloudActionServerPtr m_get_surfel_cloud_action_server;
-  GetTimersActionServerPtr m_get_timers_action_server;
 
   float m_surfel_thickness;
   float m_surfel_radius_mult;
@@ -427,38 +479,52 @@ class SurfelsUnknownSpace
   CLBufferPtr m_opencl_creation_surfel_color_source;
   CLBufferPtr m_opencl_creation_surfel_replace_global_id;
 
-  struct Intrinsics
-  {
-    float center_x,center_y;
-    float focal_x,focal_y,focal_avg;
-    uint64 width,height;
-    float min_range,max_range;
-
-    Intrinsics(const float cx,const float cy,const float fx,const float fy,const uint64 w,const uint64 h,
-               const float mrange,const float Mrange)
-    {
-      center_x = cx;
-      center_y = cy;
-      focal_x = fx;
-      focal_y = fy;
-      focal_avg = (fx + fy) / 2.0;
-      width = w;
-      height = h;
-      min_range = mrange;
-      max_range = Mrange;
-    }
-
-    Intrinsics RescaleInt(const uint64 scale) const
-    {
-      return Intrinsics(center_x / scale,center_y / scale,
-                        focal_x / scale,focal_y / scale,
-                        width / scale,height / scale,
-                        min_range, max_range);
-    }
-  };
-  typedef boost::shared_ptr<Intrinsics> IntrinsicsPtr;
-
   IntrinsicsPtr m_intrinsics;
+
+  struct OpenCLSurfel
+  {
+    cl_float position[3];
+    cl_float radius;
+    cl_float normal[3];
+    cl_uchar erased;
+    cl_uchar is_surfel;
+
+    OpenCLSurfel()
+    {
+      for (uint64 i = 0; i < 3; i++)
+        position[i] = 0;
+      for (uint64 i = 0; i < 3; i++)
+        normal[i] = 0;
+      radius = 0.0;
+      erased = false;
+      is_surfel = false;
+    }
+
+    explicit OpenCLSurfel(const Surfel & other)
+    {
+      for (uint64 i = 0; i < 3; i++)
+        position[i] = other.position[i];
+      radius = other.radius;
+      for (uint64 i = 0; i < 3; i++)
+        normal[i] = other.normal[i];
+      erased = other.erased;
+      is_surfel = other.is_surfel;
+    }
+
+    Surfel toSurfel()
+    {
+      Surfel result;
+      for (uint64 i = 0; i < 3; i++)
+        result.position[i] = position[i];
+      result.radius = radius;
+      for (uint64 i = 0; i < 3; i++)
+        result.normal[i] = normal[i];
+      result.erased = erased;
+      result.is_surfel = is_surfel;
+      return result;
+    }
+  } __attribute__((packed));
+  typedef std::vector<OpenCLSurfel> OpenCLSurfelVector;
 
   struct OpenCLIntrinsics
   {
